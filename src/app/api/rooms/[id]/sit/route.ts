@@ -2,15 +2,15 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
-import { joinWaitlist } from "@/lib/table-roster";
+import { claimSeat } from "@/lib/table-roster";
 
 type Params = { params: Promise<{ id: string }> };
 
 const schema = z.object({
+  seat: z.number().int().min(0).max(20),
   inviteCode: z.string().optional(),
 });
 
-/** Join puts the player on the waitlist — they must click an Open seat to sit. */
 export async function POST(req: Request, { params }: Params) {
   const { id } = await params;
   const authResult = await requireUser();
@@ -18,32 +18,35 @@ export async function POST(req: Request, { params }: Params) {
 
   const parsed = schema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid seat" }, { status: 400 });
   }
 
   const room = await prisma.room.findUnique({
     where: { id },
-    include: { players: true },
+    include: {
+      players: { select: { userId: true } },
+      waitlist: { select: { userId: true } },
+    },
   });
   if (!room || room.status === "CLOSED") {
     return NextResponse.json({ error: "Room not found" }, { status: 404 });
   }
 
-  if (room.isPrivate) {
+  const alreadyIn =
+    room.players.some((p) => p.userId === authResult.userId) ||
+    room.waitlist.some((w) => w.userId === authResult.userId);
+
+  if (room.isPrivate && !alreadyIn) {
     if (!parsed.data.inviteCode || parsed.data.inviteCode !== room.inviteCode) {
       return NextResponse.json({ error: "Invalid invite code" }, { status: 403 });
     }
   }
 
-  if (room.players.some((p) => p.userId === authResult.userId)) {
-    return NextResponse.json({ ok: true, alreadyJoined: true, seated: true });
-  }
-
   try {
-    const result = await joinWaitlist(id, authResult.userId);
-    return NextResponse.json({ ok: true, ...result });
+    const result = await claimSeat(id, authResult.userId, parsed.data.seat);
+    return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Join failed";
+    const message = error instanceof Error ? error.message : "Could not sit";
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

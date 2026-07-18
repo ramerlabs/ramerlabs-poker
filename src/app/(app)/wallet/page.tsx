@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 
@@ -9,6 +10,8 @@ type WalletData = {
     creditsBalance: number;
     realMoneyBalance: number;
     currentCurrency: string;
+    name: string | null;
+    email: string;
   };
   currencies: {
     code: string;
@@ -30,19 +33,41 @@ type WalletData = {
 };
 
 export default function WalletPage() {
+  const { update } = useSession();
   const [data, setData] = useState<WalletData | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState("");
 
   async function load() {
     const res = await fetch("/api/wallet");
     const json = await res.json();
     setData(json);
+    if (json.wallet?.name) setDisplayName(json.wallet.name);
   }
 
   useEffect(() => {
     void load();
   }, []);
+
+  async function saveName(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setMessage(null);
+    const res = await fetch("/api/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: displayName }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      setError(json.error || "Could not update name");
+      return;
+    }
+    await update({ name: json.user.name });
+    setMessage(`Display name set to “${json.user.name}”`);
+    await load();
+  }
 
   async function switchCurrency(currency: string) {
     setError(null);
@@ -138,6 +163,28 @@ export default function WalletPage() {
           </div>
         </Panel>
       </div>
+
+      <Panel className="p-6">
+        <h2 className="text-xl font-semibold">Display name</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">
+          Shown at the table. Email stays {data.wallet.email}.
+        </p>
+        <form onSubmit={saveName} className="mt-4 flex flex-wrap items-end gap-3">
+          <div className="min-w-[220px] flex-1">
+            <Label htmlFor="displayName">Name</Label>
+            <Input
+              id="displayName"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              minLength={2}
+              maxLength={32}
+              required
+              placeholder="Your table name"
+            />
+          </div>
+          <Button type="submit">Save name</Button>
+        </form>
+      </Panel>
 
       <Panel className="p-6">
         <h2 className="text-xl font-semibold">Active currency</h2>

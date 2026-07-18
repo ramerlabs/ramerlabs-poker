@@ -3,6 +3,7 @@ import { z } from "zod";
 import { customAlphabet } from "nanoid";
 import { Prisma, RoomType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getPlatformSettings, tickOpenRooms } from "@/lib/game-service";
 import { requireUser } from "@/lib/session";
 import { toNumber } from "@/lib/utils";
 
@@ -15,7 +16,7 @@ const createSchema = z.object({
   buyIn: z.number().positive(),
   smallBlind: z.number().positive(),
   bigBlind: z.number().positive(),
-  maxPlayers: z.number().int().min(2).max(9).default(6),
+  maxPlayers: z.number().int().min(2).max(9).default(8),
   isPrivate: z.boolean().default(false),
 });
 
@@ -23,6 +24,9 @@ export async function GET() {
   const authResult = await requireUser();
   const viewerId = "userId" in authResult ? authResult.userId : null;
   const isAdmin = "role" in authResult && authResult.role === "ADMIN";
+
+  // Keep bot-only tables dealing in the background when lobby is open
+  await tickOpenRooms(6);
 
   const rooms = await prisma.room.findMany({
     where: { status: { not: "CLOSED" } },
@@ -76,6 +80,10 @@ export async function POST(req: Request) {
   }
 
   const isPrivate = data.type === "REAL" ? data.isPrivate : false;
+  const settings = await getPlatformSettings();
+  const rakePercent =
+    data.type === "REAL" ? toNumber(settings.defaultRakePercent) : 0;
+  const rakeCap = data.type === "REAL" ? toNumber(settings.defaultRakeCap) : 0;
 
   const room = await prisma.room.create({
     data: {
@@ -85,6 +93,8 @@ export async function POST(req: Request) {
       buyIn: new Prisma.Decimal(data.buyIn),
       smallBlind: new Prisma.Decimal(data.smallBlind),
       bigBlind: new Prisma.Decimal(data.bigBlind),
+      rakePercent: new Prisma.Decimal(rakePercent),
+      rakeCap: new Prisma.Decimal(rakeCap),
       maxPlayers: data.maxPlayers,
       isPrivate,
       inviteCode: isPrivate ? inviteCode() : null,

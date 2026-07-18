@@ -131,7 +131,7 @@ export default function RoomsPage() {
             </div>
             <div>
               <Label htmlFor="maxPlayers">Max players</Label>
-              <Input id="maxPlayers" name="maxPlayers" type="number" defaultValue={6} required />
+              <Input id="maxPlayers" name="maxPlayers" type="number" defaultValue={8} required />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">

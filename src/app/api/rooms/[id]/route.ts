@@ -3,8 +3,22 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { toNumber } from "@/lib/utils";
 import { getPublicGameState } from "@/lib/game-service";
+import { isBotUserId } from "@/lib/poker/bot";
+import { purgeStalePlayers, touchPresence } from "@/lib/table-roster";
 
 type Params = { params: Promise<{ id: string }> };
+
+const roomInclude = {
+  players: {
+    include: { user: { select: { id: true, name: true, email: true } } },
+    orderBy: { seat: "asc" as const },
+  },
+  waitlist: {
+    orderBy: { createdAt: "asc" as const },
+    include: { user: { select: { id: true, name: true, email: true } } },
+  },
+  creator: { select: { id: true, name: true, email: true } },
+};
 
 export async function GET(req: Request, { params }: Params) {
   const { id } = await params;
@@ -13,24 +27,29 @@ export async function GET(req: Request, { params }: Params) {
 
   const invite = new URL(req.url).searchParams.get("invite");
 
+  await purgeStalePlayers(id);
+  await touchPresence(id, authResult.userId);
+
   const room = await prisma.room.findUnique({
     where: { id },
-    include: {
-      players: {
-        include: { user: { select: { id: true, name: true, email: true } } },
-        orderBy: { seat: "asc" },
-      },
-      creator: { select: { id: true, name: true, email: true } },
-    },
+    include: roomInclude,
   });
 
   if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
 
+  const seated = room.players.some((p) => p.userId === authResult.userId);
+  const waiting = room.waitlist.some((w) => w.userId === authResult.userId);
+  const isCreator = room.creatorId === authResult.userId;
+  const validInvite = Boolean(invite && invite === room.inviteCode);
+
   if (room.isPrivate) {
-    const seated = room.players.some((p) => p.userId === authResult.userId);
-    const isCreator = room.creatorId === authResult.userId;
-    const validInvite = Boolean(invite && invite === room.inviteCode);
-    if (!seated && !isCreator && authResult.role !== "ADMIN" && !validInvite) {
+    if (
+      !seated &&
+      !waiting &&
+      !isCreator &&
+      authResult.role !== "ADMIN" &&
+      !validInvite
+    ) {
       return NextResponse.json(
         {
           error: "Private room — join with invite code",
@@ -50,6 +69,8 @@ export async function GET(req: Request, { params }: Params) {
   }
 
   const game = await getPublicGameState(id, authResult.userId);
+  const waitPosition =
+    room.waitlist.findIndex((w) => w.userId === authResult.userId) + 1 || null;
 
   return NextResponse.json({
     room: {
@@ -57,10 +78,28 @@ export async function GET(req: Request, { params }: Params) {
       buyIn: toNumber(room.buyIn),
       smallBlind: toNumber(room.smallBlind),
       bigBlind: toNumber(room.bigBlind),
+      targetBots: room.targetBots,
       players: room.players.map((p) => ({
         ...p,
         stack: toNumber(p.stack),
+        isBot: isBotUserId(p.userId),
       })),
+      waitlist: room.waitlist.map((w) => ({
+        userId: w.userId,
+        name: w.user.name ?? w.user.email,
+        preferredSeat: w.preferredSeat,
+        createdAt: w.createdAt,
+      })),
+      botCount: room.players.filter((p) => isBotUserId(p.userId)).length,
+      humanCount: room.players.filter((p) => !isBotUserId(p.userId)).length,
+    },
+    me: {
+      seated,
+      waiting,
+      waitPosition: waiting ? waitPosition : null,
+      preferredSeat: waiting
+        ? (room.waitlist.find((w) => w.userId === authResult.userId)?.preferredSeat ?? null)
+        : null,
     },
     game,
   });

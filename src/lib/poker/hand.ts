@@ -140,6 +140,50 @@ export function compareHands(a: EvaluatedHand, b: EvaluatedHand): number {
   return 0;
 }
 
+function rankLabel(value: number, plural = true) {
+  const names: Record<number, [string, string]> = {
+    14: ["Ace", "Aces"],
+    13: ["King", "Kings"],
+    12: ["Queen", "Queens"],
+    11: ["Jack", "Jacks"],
+    10: ["Ten", "Tens"],
+    9: ["Nine", "Nines"],
+    8: ["Eight", "Eights"],
+    7: ["Seven", "Sevens"],
+    6: ["Six", "Sixes"],
+    5: ["Five", "Fives"],
+    4: ["Four", "Fours"],
+    3: ["Three", "Threes"],
+    2: ["Two", "Twos"],
+  };
+  const pair = names[value] ?? ["Card", "Cards"];
+  return plural ? pair[1] : pair[0];
+}
+
+/** Human-readable combo for the winner banner, e.g. "Pair of Aces", "Full House". */
+export function describeHand(hand: EvaluatedHand): string {
+  switch (hand.rank) {
+    case 8:
+      return hand.name; // Royal / Straight Flush
+    case 7:
+      return `Four of a Kind — ${rankLabel(hand.tiebreakers[0] ?? 0)}`;
+    case 6:
+      return `Full House — ${rankLabel(hand.tiebreakers[0] ?? 0)} full of ${rankLabel(hand.tiebreakers[1] ?? 0)}`;
+    case 5:
+      return `Flush — ${rankLabel(hand.tiebreakers[0] ?? 0, false)} high`;
+    case 4:
+      return `Straight — ${rankLabel(hand.tiebreakers[0] ?? 0, false)} high`;
+    case 3:
+      return `Three of a Kind — ${rankLabel(hand.tiebreakers[0] ?? 0)}`;
+    case 2:
+      return `Two Pair — ${rankLabel(hand.tiebreakers[0] ?? 0)} and ${rankLabel(hand.tiebreakers[1] ?? 0)}`;
+    case 1:
+      return `Pair of ${rankLabel(hand.tiebreakers[0] ?? 0)}`;
+    default:
+      return `${rankLabel(hand.tiebreakers[0] ?? 0, false)} High`;
+  }
+}
+
 export function evaluateBestHand(hole: Card[], community: Card[]): EvaluatedHand {
   const all = [...hole, ...community];
   if (all.length < 5) {

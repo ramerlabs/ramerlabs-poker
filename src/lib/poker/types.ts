@@ -30,6 +30,9 @@ export interface SeatState {
   folded: boolean;
   allIn: boolean;
   sittingOut: boolean;
+  /** Most recent choice this street (fold/all-in persist for the hand). */
+  lastAction: PlayerAction | null;
+  lastActionAmount?: number;
 }
 
 export interface PokerTableState {
@@ -50,6 +53,28 @@ export interface PokerTableState {
   lastAction: { userId: string; action: PlayerAction; amount?: number } | null;
   smallBlind: number;
   bigBlind: number;
+  /** Rake taken from the last completed pot (REAL rooms). */
+  rakeTaken: number;
+  rakePercent: number;
+  rakeCap: number;
+  /** Epoch ms when the current action seat's clock started. */
+  turnStartedAt: number | null;
+  /** Seconds allowed per turn before auto-fold. */
+  turnSeconds: number;
+  /** Do not allow actions until this time (card reveal pause). */
+  streetHoldUntil: number | null;
+  /** Extra community cards still to deal before betting resumes (flop = 2 after first). */
+  pendingCommunityDeals: number;
+  /** Bot planning strength 0–100 (admin-configured). */
+  botSkillPercent: number;
+}
+
+/** Recommended cash-game think time. */
+export const DEFAULT_TURN_SECONDS = 20;
+
+export interface RakeConfig {
+  percent: number;
+  cap: number;
 }
 
 export interface PublicSeatState extends Omit<SeatState, "holeCards"> {

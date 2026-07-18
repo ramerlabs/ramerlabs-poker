@@ -10,7 +10,11 @@ async function main() {
 
   const admin = await prisma.user.upsert({
     where: { email: "admin@ramerlabs.com" },
-    update: {},
+    update: {
+      role: "ADMIN",
+      name: "Admin",
+      passwordHash,
+    },
     create: {
       email: "admin@ramerlabs.com",
       name: "Admin",
@@ -24,7 +28,9 @@ async function main() {
 
   const demo = await prisma.user.upsert({
     where: { email: "player@ramerlabs.com" },
-    update: {},
+    update: {
+      role: "USER",
+    },
     create: {
       email: "player@ramerlabs.com",
       name: "Demo Player",
@@ -71,7 +77,7 @@ async function main() {
   });
 
   if (!existingFree) {
-    await prisma.room.create({
+    const free = await prisma.room.create({
       data: {
         name: "Lobby Credits Table",
         type: RoomType.FREE,
@@ -79,11 +85,22 @@ async function main() {
         buyIn: 100,
         smallBlind: 1,
         bigBlind: 2,
-        maxPlayers: 6,
+        maxPlayers: 8,
+        targetBots: 5,
+        botSkillPercent: 50,
         isPrivate: false,
         creatorId: admin.id,
       },
     });
+    const { seedBots } = await import("../src/lib/table-roster");
+    await seedBots(free.id, 5);
+  } else {
+    await prisma.room.update({
+      where: { id: existingFree.id },
+      data: { maxPlayers: 8, targetBots: Math.max(existingFree.targetBots, 5), botSkillPercent: 50 },
+    });
+    const { refillBotsToTarget } = await import("../src/lib/table-roster");
+    await refillBotsToTarget(existingFree.id);
   }
 
   const existingReal = await prisma.room.findFirst({
@@ -99,13 +116,31 @@ async function main() {
         buyIn: 50,
         smallBlind: 0.5,
         bigBlind: 1,
-        maxPlayers: 6,
+        rakePercent: 5,
+        rakeCap: 3,
+        maxPlayers: 8,
         isPrivate: true,
         inviteCode: inviteCode(),
         creatorId: admin.id,
       },
     });
+  } else {
+    await prisma.room.update({
+      where: { id: existingReal.id },
+      data: { rakePercent: 5, rakeCap: 3, maxPlayers: 8 },
+    });
   }
+
+  await prisma.platformSettings.upsert({
+    where: { id: "default" },
+    update: {},
+    create: {
+      id: "default",
+      defaultRakePercent: 5,
+      defaultRakeCap: 3,
+      houseBalances: {},
+    },
+  });
 
   console.log("Seed complete");
   console.log("Admin: admin@ramerlabs.com / password123");

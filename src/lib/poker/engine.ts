@@ -1,11 +1,23 @@
 import { createDeck, deal, shuffle } from "./deck";
-import { compareHands, evaluateBestHand } from "./hand";
+import { compareHands, describeHand, evaluateBestHand } from "./hand";
 import type {
   PlayerAction,
   PokerTableState,
   PublicTableState,
+  RakeConfig,
   SeatState,
 } from "./types";
+import { DEFAULT_TURN_SECONDS } from "./types";
+
+function markTurnClock(state: PokerTableState, seat: number | null) {
+  state.actionSeat = seat;
+  if (seat == null) {
+    state.turnStartedAt = null;
+    return;
+  }
+  state.turnStartedAt = Date.now();
+  if (!state.turnSeconds) state.turnSeconds = DEFAULT_TURN_SECONDS;
+}
 
 function activeSeats(state: PokerTableState): SeatState[] {
   return state.seats.filter((s) => !s.sittingOut && s.stack + s.bet > 0);
@@ -59,13 +71,37 @@ function needsAction(state: PokerTableState, seat: SeatState) {
   return false;
 }
 
+function streetPauseMs(street: PokerTableState["street"], pendingExtra = 0) {
+  if (pendingExtra > 0) return 1100; // between flop cards
+  if (street === "preflop") return 0;
+  if (street === "flop") return 1600;
+  if (street === "turn") return 2000;
+  if (street === "river") return 2000;
+  return 1200;
+}
+
+function clearStreetSeatActions(state: PokerTableState) {
+  for (const seat of state.seats) {
+    if (seat.folded) {
+      seat.lastAction = "fold";
+      seat.lastActionAmount = undefined;
+      continue;
+    }
+    if (seat.allIn) {
+      seat.lastAction = "allin";
+      continue;
+    }
+    seat.lastAction = null;
+    seat.lastActionAmount = undefined;
+  }
+}
+
 function advanceStreet(state: PokerTableState) {
   collectBets(state);
-  for (const seat of state.seats) {
-    // reset per-street tracking via lastAction clear
-  }
   state.lastAction = null;
+  clearStreetSeatActions(state);
   state.minRaise = state.bigBlind;
+  state.pendingCommunityDeals = 0;
 
   if (contesting(state).length <= 1) {
     finishHand(state);
@@ -73,9 +109,16 @@ function advanceStreet(state: PokerTableState) {
   }
 
   if (state.street === "preflop") {
+    // Flop: deal first board card now; two more via continueCommunityDeal
     state.street = "flop";
-    dealCommunity(state, 3);
-  } else if (state.street === "flop") {
+    dealCommunity(state, 1);
+    state.pendingCommunityDeals = 2;
+    state.streetHoldUntil = Date.now() + streetPauseMs("flop", 2);
+    markTurnClock(state, null); // no betting until all 3 flop cards are out
+    return;
+  }
+
+  if (state.street === "flop") {
     state.street = "turn";
     dealCommunity(state, 1);
   } else if (state.street === "turn") {
@@ -87,24 +130,100 @@ function advanceStreet(state: PokerTableState) {
     return;
   }
 
+  state.streetHoldUntil = Date.now() + streetPauseMs(state.street);
   const first = nextOccupiedSeat(
     state,
     state.dealerSeat,
     (s) => !s.folded && !s.allIn && !s.sittingOut,
   );
-  state.actionSeat = first;
+  markTurnClock(state, first);
+}
+
+/** Deal remaining flop cards one-by-one, then open flop betting. */
+export function continueCommunityDealIfReady(state: PokerTableState): PokerTableState | null {
+  if (!state.pendingCommunityDeals || state.pendingCommunityDeals <= 0) return null;
+  if (state.streetHoldUntil && Date.now() < state.streetHoldUntil) return null;
+
+  const next = structuredClone(state) as PokerTableState;
+  dealCommunity(next, 1);
+  next.pendingCommunityDeals = Math.max(0, (next.pendingCommunityDeals ?? 1) - 1);
+
+  if (next.pendingCommunityDeals > 0) {
+    next.streetHoldUntil = Date.now() + streetPauseMs(next.street, next.pendingCommunityDeals);
+    markTurnClock(next, null);
+    return next;
+  }
+
+  // Flop complete — start betting
+  next.streetHoldUntil = Date.now() + 900;
+  const first = nextOccupiedSeat(
+    next,
+    next.dealerSeat,
+    (s) => !s.folded && !s.allIn && !s.sittingOut,
+  );
+  markTurnClock(next, first);
+  return next;
+}
+
+/** After all-in / no actors: reveal next board street once the pause elapses. */
+export function continueRunoutIfReady(state: PokerTableState): PokerTableState | null {
+  if (
+    state.street === "waiting" ||
+    state.street === "complete" ||
+    state.street === "showdown"
+  ) {
+    return null;
+  }
+  // Prefer finishing a staggered flop first
+  if (state.pendingCommunityDeals && state.pendingCommunityDeals > 0) return null;
+
+  if (state.actionSeat != null) return null;
+  if (state.streetHoldUntil && Date.now() < state.streetHoldUntil) return null;
+
+  const someoneCanAct = state.seats.some(
+    (s) => !s.folded && !s.allIn && !s.sittingOut && s.stack > 0,
+  );
+  if (someoneCanAct) return null;
+  if (contesting(state).length <= 1) {
+    const next = structuredClone(state) as PokerTableState;
+    finishHand(next);
+    return next;
+  }
+
+  const next = structuredClone(state) as PokerTableState;
+  advanceStreet(next);
+  return next;
+}
+
+function takeRake(pot: number, state: PokerTableState): { netPot: number; rake: number } {
+  if (pot <= 0 || state.rakePercent <= 0) return { netPot: pot, rake: 0 };
+  let rake = Math.floor((pot * state.rakePercent) / 100);
+  if (state.rakeCap > 0) rake = Math.min(rake, state.rakeCap);
+  // Never rake the entire pot — leave at least 1 chip when possible
+  if (rake >= pot) rake = Math.max(0, pot - 1);
+  return { netPot: pot - rake, rake };
 }
 
 function finishHand(state: PokerTableState) {
   collectBets(state);
   const alive = contesting(state);
   state.street = "showdown";
-  state.actionSeat = null;
+  markTurnClock(state, null);
+
+  const { netPot, rake } = takeRake(state.pot, state);
+  state.rakeTaken = rake;
+  state.pot = netPot;
 
   if (alive.length === 1) {
     const winner = alive[0]!;
     winner.stack += state.pot;
-    state.winners = [{ userId: winner.userId, amount: state.pot, handName: "Uncontested" }];
+    let handName = "Everyone else folded";
+    if (winner.holeCards.length >= 2 && state.community.length >= 3) {
+      handName = `${describeHand(evaluateBestHand(winner.holeCards, state.community))} (uncontested)`;
+    } else if (winner.holeCards.length >= 2) {
+      handName = "Everyone else folded";
+    }
+    state.winners = [{ userId: winner.userId, amount: state.pot, handName }];
     state.pot = 0;
     state.street = "complete";
     return;
@@ -119,12 +238,12 @@ function finishHand(state: PokerTableState) {
   const best = scored[0]!.hand;
   const winners = scored.filter((s) => compareHands(s.hand, best) === 0);
   const share = Math.floor(state.pot / winners.length);
-  let remainder = state.pot - share * winners.length;
+  const remainder = state.pot - share * winners.length;
 
   state.winners = winners.map(({ seat, hand }, idx) => {
     const amount = share + (idx === 0 ? remainder : 0);
     seat.stack += amount;
-    return { userId: seat.userId, amount, handName: hand.name };
+    return { userId: seat.userId, amount, handName: describeHand(hand) };
   });
 
   state.pot = 0;
@@ -144,6 +263,7 @@ export function createWaitingState(
   seats: { userId: string; seat: number; stack: number }[],
   smallBlind: number,
   bigBlind: number,
+  rake: RakeConfig = { percent: 0, cap: 0 },
 ): PokerTableState {
   return {
     roomId,
@@ -158,6 +278,7 @@ export function createWaitingState(
       folded: false,
       allIn: false,
       sittingOut: false,
+      lastAction: null,
     })),
     pot: 0,
     currentBet: 0,
@@ -171,6 +292,14 @@ export function createWaitingState(
     lastAction: null,
     smallBlind,
     bigBlind,
+    rakeTaken: 0,
+    rakePercent: rake.percent,
+    rakeCap: rake.cap,
+    turnStartedAt: null,
+    turnSeconds: DEFAULT_TURN_SECONDS,
+    streetHoldUntil: null,
+    pendingCommunityDeals: 0,
+    botSkillPercent: 50,
   };
 }
 
@@ -179,7 +308,7 @@ export function startHand(state: PokerTableState): PokerTableState {
   const seated = activeSeats(next).filter((s) => s.stack > 0);
   if (seated.length < 2) {
     next.street = "waiting";
-    next.actionSeat = null;
+    markTurnClock(next, null);
     return next;
   }
 
@@ -187,10 +316,13 @@ export function startHand(state: PokerTableState): PokerTableState {
   next.community = [];
   next.pot = 0;
   next.winners = [];
+  next.rakeTaken = 0;
   next.lastAction = null;
   next.deck = shuffle(createDeck());
   next.street = "preflop";
   next.minRaise = next.bigBlind;
+  next.streetHoldUntil = null;
+  next.pendingCommunityDeals = 0;
 
   for (const seat of next.seats) {
     seat.bet = 0;
@@ -198,6 +330,8 @@ export function startHand(state: PokerTableState): PokerTableState {
     seat.folded = seat.sittingOut || seat.stack <= 0;
     seat.allIn = false;
     seat.holeCards = [];
+    seat.lastAction = null;
+    seat.lastActionAmount = undefined;
   }
 
   const ordered = [...seated].sort((a, b) => a.seat - b.seat);
@@ -226,10 +360,17 @@ export function startHand(state: PokerTableState): PokerTableState {
   postBlind(bb, next.bigBlind);
   next.currentBet = Math.max(sb.bet, bb.bet);
 
-  next.actionSeat = nextOccupiedSeat(
+  // Hold betting until dealer has dropped 2 hole cards to every seat
+  const dealMs = 2200 + ordered.length * 550;
+  next.streetHoldUntil = Date.now() + dealMs;
+
+  markTurnClock(
     next,
-    next.bigBlindSeat,
-    (s) => !s.folded && !s.allIn && !s.sittingOut,
+    nextOccupiedSeat(
+      next,
+      next.bigBlindSeat,
+      (s) => !s.folded && !s.allIn && !s.sittingOut,
+    ),
   );
 
   return next;
@@ -244,6 +385,9 @@ export function applyAction(
   const next = structuredClone(state) as PokerTableState;
   if (next.street === "waiting" || next.street === "complete" || next.street === "showdown") {
     throw new Error("Hand is not in a betting round");
+  }
+  if (next.streetHoldUntil && Date.now() < next.streetHoldUntil) {
+    throw new Error("Wait — the dealer is still dealing");
   }
 
   const seat = next.seats.find((s) => s.userId === userId);
@@ -309,6 +453,11 @@ export function applyAction(
       throw new Error("Unknown action");
   }
 
+  if (next.lastAction) {
+    seat.lastAction = next.lastAction.action;
+    seat.lastActionAmount = next.lastAction.amount;
+  }
+
   if (contesting(next).length <= 1) {
     finishHand(next);
     return next;
@@ -327,9 +476,37 @@ export function applyAction(
   if (stillToAct.length === 0 && bettingRoundComplete(next, seat.userId)) {
     advanceStreet(next);
   } else {
-    next.actionSeat = nextSeat;
+    markTurnClock(next, nextSeat);
   }
 
+  return next;
+}
+
+/** Fold a player even if it is not their turn (disconnect / leave). */
+export function forceFold(state: PokerTableState, userId: string): PokerTableState {
+  if (
+    state.street === "waiting" ||
+    state.street === "complete" ||
+    state.street === "showdown"
+  ) {
+    return state;
+  }
+  const seat = state.seats.find((s) => s.userId === userId);
+  if (!seat || seat.folded) return state;
+
+  if (state.actionSeat === seat.seat) {
+    return applyAction(state, userId, "fold");
+  }
+
+  const next = structuredClone(state) as PokerTableState;
+  const s = next.seats.find((x) => x.userId === userId)!;
+  s.folded = true;
+  s.lastAction = "fold";
+  s.lastActionAmount = undefined;
+  next.lastAction = { userId, action: "fold" };
+  if (contesting(next).length <= 1) {
+    finishHand(next);
+  }
   return next;
 }
 
@@ -386,6 +563,14 @@ export function toPublicState(state: PokerTableState, viewerId?: string): Public
     lastAction: state.lastAction,
     smallBlind: state.smallBlind,
     bigBlind: state.bigBlind,
+    rakeTaken: state.rakeTaken,
+    rakePercent: state.rakePercent,
+    rakeCap: state.rakeCap,
+    turnStartedAt: state.turnStartedAt,
+    turnSeconds: state.turnSeconds || DEFAULT_TURN_SECONDS,
+    streetHoldUntil: state.streetHoldUntil ?? null,
+    pendingCommunityDeals: state.pendingCommunityDeals ?? 0,
+    botSkillPercent: state.botSkillPercent ?? 50,
     deckCount: state.deck.length,
     seats: state.seats.map((seat) => {
       const reveal =
@@ -401,6 +586,8 @@ export function toPublicState(state: PokerTableState, viewerId?: string): Public
         folded: seat.folded,
         allIn: seat.allIn,
         sittingOut: seat.sittingOut,
+        lastAction: seat.lastAction ?? (seat.folded ? "fold" : seat.allIn ? "allin" : null),
+        lastActionAmount: seat.lastActionAmount,
         cardCount: seat.holeCards.length,
         holeCards: reveal
           ? seat.holeCards

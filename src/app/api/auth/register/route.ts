@@ -29,11 +29,12 @@ export async function POST(req: Request) {
         email,
         name: parsed.data.name ?? email.split("@")[0],
         passwordHash,
+        role: "USER",
         creditsBalance: 1000,
         realMoneyBalance: 0,
         currentCurrency: "USD",
       },
-      select: { id: true, email: true, name: true },
+      select: { id: true, email: true, name: true, role: true },
     });
 
     return NextResponse.json({ user }, { status: 201 });

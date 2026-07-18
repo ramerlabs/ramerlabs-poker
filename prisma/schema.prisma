@@ -48,60 +48,115 @@ enum SeatStatus {
 }
 
 model User {
-  id                String        @id @default(cuid())
-  email             String        @unique
+  id                String         @id @default(cuid())
+  email             String         @unique
   name              String?
   passwordHash      String
-  role              UserRole      @default(USER)
-  creditsBalance    Decimal       @default(1000) @db.Decimal(18, 2)
-  realMoneyBalance  Decimal       @default(0) @db.Decimal(18, 2)
-  currentCurrency   String        @default("USD")
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  roomsCreated      Room[]        @relation("RoomCreator")
+  role              UserRole       @default(USER)
+  creditsBalance    Decimal        @default(1000) @db.Decimal(18, 2)
+  realMoneyBalance  Decimal        @default(0) @db.Decimal(18, 2)
+  currentCurrency   String         @default("USD")
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  roomsCreated      Room[]         @relation("RoomCreator")
   roomSeats         RoomPlayer[]
+  waitlistEntries   RoomWaitlist[]
   transactions      Transaction[]
 
   @@index([email])
 }
 
 model Room {
-  id          String       @id @default(cuid())
+  id          String         @id @default(cuid())
   name        String
   type        RoomType
   currency    String
-  buyIn       Decimal      @db.Decimal(18, 2)
-  smallBlind  Decimal      @db.Decimal(18, 2)
-  bigBlind    Decimal      @db.Decimal(18, 2)
-  maxPlayers  Int          @default(6)
-  inviteCode  String?      @unique
-  isPrivate   Boolean      @default(false)
-  status      RoomStatus   @default(WAITING)
+  buyIn       Decimal        @db.Decimal(18, 2)
+  smallBlind  Decimal        @db.Decimal(18, 2)
+  bigBlind    Decimal        @db.Decimal(18, 2)
+  /// Platform fee % taken from each REAL pot (0 for FREE rooms).
+  rakePercent Decimal        @default(0) @db.Decimal(5, 2)
+  /// Max rake per hand in table currency (0 = no cap).
+  rakeCap     Decimal        @default(0) @db.Decimal(18, 2)
+  maxPlayers  Int            @default(8)
+  /// Target number of bots to keep seated (admin-configured).
+  targetBots  Int            @default(0)
+  /// Bot skill / planning strength 0–100 (50 = balanced). Affects hand reading & bluffs.
+  botSkillPercent Int        @default(50)
+  inviteCode  String?        @unique
+  isPrivate   Boolean        @default(false)
+  status      RoomStatus     @default(WAITING)
   creatorId   String
-  creator     User         @relation("RoomCreator", fields: [creatorId], references: [id])
+  creator     User           @relation("RoomCreator", fields: [creatorId], references: [id])
   players     RoomPlayer[]
+  waitlist    RoomWaitlist[]
   gameState   GameState?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  rakeEvents  RakeEvent[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
   @@index([type, status])
   @@index([inviteCode])
 }
 
+model RoomWaitlist {
+  id            String   @id @default(cuid())
+  roomId        String
+  userId        String
+  /// Seat the player clicked; filled on the next hand if free.
+  preferredSeat Int?
+  /// Heartbeat — stale waiters are removed.
+  lastSeenAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+  room          Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId, createdAt])
+  @@index([roomId, lastSeenAt])
+}
+
+model PlatformSettings {
+  id                 String  @id @default("default")
+  defaultRakePercent Decimal @default(5) @db.Decimal(5, 2)
+  defaultRakeCap     Decimal @default(3) @db.Decimal(18, 2)
+  /// Aggregated house earnings by currency code -> balance
+  houseBalances      Json    @default("{}")
+  updatedAt          DateTime @updatedAt
+}
+
+model RakeEvent {
+  id         String   @id @default(cuid())
+  roomId     String
+  handNumber Int
+  amount     Decimal  @db.Decimal(18, 2)
+  currency   String
+  createdAt  DateTime @default(now())
+  room       Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([roomId])
+}
+
 model RoomPlayer {
-  id        String     @id @default(cuid())
-  roomId    String
-  userId    String
-  seat      Int
-  stack     Decimal    @db.Decimal(18, 2)
-  status    SeatStatus @default(SEATED)
-  joinedAt  DateTime   @default(now())
-  room      Room       @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String     @id @default(cuid())
+  roomId       String
+  userId       String
+  seat         Int
+  stack        Decimal    @db.Decimal(18, 2)
+  status       SeatStatus @default(SEATED)
+  /// Set when the client disconnects mid-hand; cashed out after the hand.
+  pendingLeave Boolean    @default(false)
+  /// Heartbeat — stale humans are auto-disconnected.
+  lastSeenAt   DateTime   @default(now())
+  joinedAt     DateTime   @default(now())
+  room         Room       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([roomId, userId])
   @@unique([roomId, seat])
   @@index([userId])
+  @@index([roomId, lastSeenAt])
 }
 
 model Transaction {
