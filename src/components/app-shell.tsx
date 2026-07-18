@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
-import { Coins, LayoutDashboard, LogOut, Shield, Spade, Wallet } from "lucide-react";
+import { LayoutDashboard, LifeBuoy, LogOut, Shield, Spade, Wallet } from "lucide-react";
 import { cn, formatMoney } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui";
@@ -12,6 +12,7 @@ const links = [
   { href: "/dashboard", label: "Lobby", icon: LayoutDashboard },
   { href: "/rooms", label: "Rooms", icon: Spade },
   { href: "/wallet", label: "Wallet", icon: Wallet },
+  { href: "/support", label: "Support", icon: LifeBuoy },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -135,14 +136,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 "rounded-xl p-2.5",
                 pathname.startsWith(link.href) ? "bg-white/10 text-[var(--gold)]" : "text-[var(--muted)]",
               )}
+              title={link.label}
             >
               <Icon className="h-5 w-5" />
             </Link>
           );
         })}
-        <Link href="/wallet" className="rounded-xl p-2.5 text-[var(--muted)]">
-          <Coins className="h-5 w-5" />
-        </Link>
       </div>
     </div>
   );

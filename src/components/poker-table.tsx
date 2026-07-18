@@ -103,17 +103,17 @@ const DEALER_Y = "40%";
 /** Fallback when pot DOM hasn't measured yet (left of center dealer). */
 const POT_FALLBACK = { x: "38%", y: "40%" };
 
-/** Seats on the outer rail — kept on the felt so the right hint gutter stays clear. */
+/** Seats on the rail — tucked closer to the felt edge without covering the board. */
 const SEAT_LAYOUT: Record<number, { left: string; top: string }> = {
-  0: { left: "50%", top: "-2%" },
-  1: { left: "86%", top: "8%" },
-  2: { left: "96%", top: "46%" },
-  3: { left: "86%", top: "88%" },
-  4: { left: "50%", top: "104%" },
-  5: { left: "12%", top: "88%" },
-  6: { left: "-2%", top: "46%" },
-  7: { left: "12%", top: "8%" },
-  8: { left: "70%", top: "0%" },
+  0: { left: "50%", top: "3%" },
+  1: { left: "83%", top: "11%" },
+  2: { left: "93%", top: "46%" },
+  3: { left: "83%", top: "85%" },
+  4: { left: "50%", top: "97%" },
+  5: { left: "17%", top: "85%" },
+  6: { left: "7%", top: "46%" },
+  7: { left: "17%", top: "11%" },
+  8: { left: "68%", top: "3%" },
 };
 
 function isBot(userId: string) {

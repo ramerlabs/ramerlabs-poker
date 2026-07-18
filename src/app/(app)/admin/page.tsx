@@ -4,6 +4,15 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
+import {
+  TICKET_CATEGORIES,
+  TICKET_PRIORITIES,
+  TICKET_STATUSES,
+  categoryLabel,
+  priorityLabel,
+  statusLabel,
+} from "@/lib/support";
+import type { TicketCategory, TicketPriority, TicketStatus } from "@prisma/client";
 
 type Currency = {
   id: string;
@@ -48,14 +57,43 @@ type AdminRoom = {
   playerCount: number;
 };
 
+type AdminTicket = {
+  id: string;
+  subject: string;
+  category: TicketCategory;
+  priority: TicketPriority;
+  status: TicketStatus;
+  messageCount: number;
+  updatedAt: string;
+  user: { id: string; name: string | null; email: string };
+};
+
 export default function AdminPage() {
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [rooms, setRooms] = useState<AdminRoom[]>([]);
   const [rake, setRake] = useState<RakeSettings | null>(null);
   const [recentRake, setRecentRake] = useState<RakeRow[]>([]);
+  const [tickets, setTickets] = useState<AdminTicket[]>([]);
+  const [ticketStatus, setTicketStatus] = useState("");
+  const [ticketPriority, setTicketPriority] = useState("");
+  const [ticketCategory, setTicketCategory] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+
+  async function loadTickets(filters?: {
+    status?: string;
+    priority?: string;
+    category?: string;
+  }) {
+    const qs = new URLSearchParams();
+    if (filters?.status) qs.set("status", filters.status);
+    if (filters?.priority) qs.set("priority", filters.priority);
+    if (filters?.category) qs.set("category", filters.category);
+    const res = await fetch(`/api/admin/tickets?${qs.toString()}`);
+    const json = await res.json();
+    if (res.ok) setTickets(json.tickets ?? []);
+  }
 
   async function load() {
     const [curRes, rakeRes, roomsRes] = await Promise.all([
@@ -76,6 +114,11 @@ export default function AdminPage() {
       setRecentRake(rakeJson.recent ?? []);
     }
     if (roomsRes.ok) setRooms(roomsJson.rooms ?? []);
+    await loadTickets({
+      status: ticketStatus,
+      priority: ticketPriority,
+      category: ticketCategory,
+    });
   }
 
   useEffect(() => {
@@ -230,6 +273,101 @@ export default function AdminPage() {
           Create branded tables, manage currencies, and track house rake.
         </p>
       </div>
+
+      <Panel className="p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">Support tickets</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Inbox for player tickets. Open a thread to reply or change status.
+            </p>
+          </div>
+          <Badge tone="gold">{tickets.length} shown</Badge>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          <select
+            value={ticketStatus}
+            onChange={(e) => setTicketStatus(e.target.value)}
+            className="rounded-xl border border-[var(--line)] bg-[#0a1220] px-3 py-2 text-sm"
+          >
+            <option value="">All statuses</option>
+            {TICKET_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {statusLabel(s)}
+              </option>
+            ))}
+          </select>
+          <select
+            value={ticketPriority}
+            onChange={(e) => setTicketPriority(e.target.value)}
+            className="rounded-xl border border-[var(--line)] bg-[#0a1220] px-3 py-2 text-sm"
+          >
+            <option value="">All priorities</option>
+            {TICKET_PRIORITIES.map((p) => (
+              <option key={p} value={p}>
+                {priorityLabel(p)}
+              </option>
+            ))}
+          </select>
+          <select
+            value={ticketCategory}
+            onChange={(e) => setTicketCategory(e.target.value)}
+            className="rounded-xl border border-[var(--line)] bg-[#0a1220] px-3 py-2 text-sm"
+          >
+            <option value="">All categories</option>
+            {TICKET_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {categoryLabel(c)}
+              </option>
+            ))}
+          </select>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() =>
+              void loadTickets({
+                status: ticketStatus,
+                priority: ticketPriority,
+                category: ticketCategory,
+              })
+            }
+          >
+            Filter
+          </Button>
+        </div>
+
+        <div className="mt-4 space-y-2">
+          {tickets.length === 0 && (
+            <p className="text-sm text-[var(--muted)]">No tickets match.</p>
+          )}
+          {tickets.map((t) => (
+            <Link
+              key={t.id}
+              href={`/support/${t.id}`}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/5 bg-black/20 px-4 py-3 transition hover:border-[rgba(212,168,83,0.35)]"
+            >
+              <div className="min-w-0">
+                <div className="truncate font-medium">{t.subject}</div>
+                <div className="mt-1 text-xs text-[var(--muted)]">
+                  {t.user.name || t.user.email} · {categoryLabel(t.category)} ·{" "}
+                  {t.messageCount} msg · {new Date(t.updatedAt).toLocaleString()}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Badge tone="muted">{priorityLabel(t.priority)}</Badge>
+                <Badge
+                  tone={
+                    t.status === "CLOSED" || t.status === "RESOLVED" ? "green" : "gold"
+                  }
+                >
+                  {statusLabel(t.status)}
+                </Badge>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </Panel>
 
       <Panel className="p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
