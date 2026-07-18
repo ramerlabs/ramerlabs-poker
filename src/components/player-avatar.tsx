@@ -100,7 +100,7 @@ export function PlayerAvatar({
   return (
     <div
       className={cn(
-        "relative shrink-0 overflow-hidden rounded-full border border-[rgba(212,168,83,0.4)] bg-[#0e1624] shadow-[0_4px_12px_rgba(0,0,0,0.35)]",
+        "player-avatar relative shrink-0 overflow-hidden rounded-full border border-[rgba(255,255,255,0.2)] bg-[#1c222e] shadow-[0_4px_12px_rgba(0,0,0,0.35)]",
         sizes[size],
         className,
       )}

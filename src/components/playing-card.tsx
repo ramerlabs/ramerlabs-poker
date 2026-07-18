@@ -14,7 +14,7 @@ export function PlayingCard({
   if (card === "hidden") {
     return (
       <div className={cn("playing-card hidden-card animate-deal", className)} style={style}>
-        RL
+        ◆
       </div>
     );
   }

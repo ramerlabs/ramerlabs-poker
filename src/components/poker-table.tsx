@@ -91,6 +91,30 @@ function seatActionLabel(
   return label;
 }
 
+function chipTone(amount: number): "green" | "blue" | "red" | "black" {
+  if (amount >= 100) return "black";
+  if (amount >= 25) return "blue";
+  if (amount >= 10) return "green";
+  return "red";
+}
+
+function ChipPile({ amount }: { amount: number }) {
+  const count = Math.min(4, Math.max(1, Math.ceil(amount / 15)));
+  const tone = chipTone(amount);
+  return (
+    <div className="seat-bet-stack">
+      <div className="chip-stack">
+        {Array.from({ length: count }).map((_, i) => (
+          <div key={i} className={cn("poker-chip", `is-${tone}`)}>
+            <span>{amount >= 100 ? "100" : amount >= 25 ? "25" : amount >= 10 ? "10" : "5"}</span>
+          </div>
+        ))}
+      </div>
+      <div className="chip-amount-tag">{amount}</div>
+    </div>
+  );
+}
+
 function TurnTimer({
   secondsLeft,
   total,
@@ -777,10 +801,20 @@ export function PokerTable({
           {showPot && (
             <div
               key={`pot-${livePot}-${state.handNumber}`}
-              className="pointer-events-auto pot-rail animate-pot"
+              className="pointer-events-auto pot-classic animate-pot"
             >
-              <div>
-                <div className="pot-label">Pot</div>
+              <div className="chip-stack">
+                {Array.from({ length: Math.min(5, Math.max(2, Math.ceil(livePot / 20))) }).map(
+                  (_, i) => (
+                    <div
+                      key={i}
+                      className={cn("poker-chip", `is-${chipTone(livePot)}`)}
+                      style={{ marginLeft: i % 2 === 0 ? 0 : 6 }}
+                    >
+                      <span>{livePot >= 100 ? "100" : livePot >= 25 ? "25" : "10"}</span>
+                    </div>
+                  ),
+                )}
               </div>
               <div className="pot-value">{livePot.toLocaleString()}</div>
             </div>
@@ -914,10 +948,7 @@ export function PokerTable({
                   type="button"
                   disabled={!canSit || busy}
                   onClick={() => void sitAt(seatIndex)}
-                  className={cn(
-                    "seat-empty",
-                    reservedHere && "border-[var(--gold)] !bg-[rgba(212,168,83,0.22)]",
-                  )}
+                  className={cn("seat-empty-classic", reservedHere && "is-reserved")}
                   title={
                     canSit
                       ? reservedHere
@@ -928,12 +959,7 @@ export function PokerTable({
                       : "You are already seated"
                   }
                 >
-                  <div className="seat-empty-label">
-                    {reservedHere ? "Yours" : "Join"}
-                  </div>
-                  <div className="seat-empty-hint">
-                    {reservedHere ? "Next hand" : `Seat ${seatIndex + 1}`}
-                  </div>
+                  ♣
                 </button>
               </div>
             );
@@ -943,56 +969,27 @@ export function PokerTable({
           const isDealer = state.dealerSeat === seat.seat && state.handNumber > 0;
           const isWinner = showWinner && winnerIds.has(seat.userId);
           const displayName = nameFor(seat.userId);
+          const showCards =
+            holeCardsVisible && (seat.holeCards.length > 0 || seat.cardCount > 0);
+          const hole =
+            seat.holeCards.length > 0
+              ? seat.holeCards
+              : Array.from({ length: seat.cardCount || 2 }, () => "hidden");
 
           return (
             <div
               key={seat.userId}
               className={cn(
-                "seat-on-rail seat-chip pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2",
-                active && !showWinner && "is-active animate-pulse-gold",
-                isWinner && "is-winner seat-winner",
+                "seat-on-rail seat-node absolute -translate-x-1/2 -translate-y-1/2",
+                active && !showWinner && "is-active",
+                isWinner && "is-winner",
                 seat.folded && "is-folded",
               )}
               style={{ left: pos.left, top: pos.top }}
             >
-              {isWinner && (
-                <span className="absolute -top-3 left-1/2 z-10 flex max-w-[140px] -translate-x-1/2 flex-col items-center gap-0.5">
-                  <span className="rounded-full bg-[var(--gold)] px-2 py-0.5 text-[9px] font-bold tracking-wide text-[#1a1205]">
-                    WIN
-                  </span>
-                  {state.winners?.find((w) => w.userId === seat.userId)?.handName && (
-                    <span className="rounded-md bg-black/75 px-1.5 py-0.5 text-center text-[8px] font-semibold leading-tight text-[var(--gold-soft)]">
-                      {state.winners.find((w) => w.userId === seat.userId)!.handName}
-                    </span>
-                  )}
-                </span>
-              )}
-              {isDealer && (
-                <span
-                  className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-[var(--gold)] text-[10px] font-bold text-[#1a1205] shadow"
-                  title="Dealer button"
-                >
-                  D
-                </span>
-              )}
-              {active && !waiting && !showWinner && (
-                <span className="absolute -left-2 -top-2 scale-90">
-                  <TurnTimer secondsLeft={secondsLeft} total={turnSeconds} />
-                </span>
-              )}
-              <div className="seat-chip-row">
-                <PlayerAvatar userId={seat.userId} name={displayName} size="sm" />
-                <div className="seat-chip-meta">
-                  <div className="seat-chip-name" title={displayName}>
-                    {displayName}
-                  </div>
-                  <div className="seat-chip-stack">{seat.stack.toLocaleString()}</div>
-                </div>
-              </div>
-              <div className="seat-chip-body">
-                {(seat.lastAction || seat.folded || seat.allIn) &&
+              {(seat.lastAction || seat.folded || seat.allIn) &&
                 !showWinner &&
-                state.street !== "waiting" ? (
+                state.street !== "waiting" && (
                   <div
                     className={cn(
                       "seat-action-badge",
@@ -1004,42 +1001,60 @@ export function PokerTable({
                       seat.lastActionAmount,
                     )}
                   </div>
-                ) : (
-                  <span />
                 )}
-                {(holeCardsVisible &&
-                  (seat.holeCards.length > 0 || seat.cardCount > 0)) && (
-                  <div className="seat-chip-cards">
-                    {(seat.holeCards.length > 0
-                      ? seat.holeCards
-                      : Array.from({ length: seat.cardCount || 2 }, () => "hidden")
-                    ).map((c, idx) => (
-                      <PlayingCard
-                        key={`${seat.userId}-${state.handNumber}-${idx}`}
-                        card={c}
-                        delayMs={idx * 90}
-                        className="!h-9 !w-[26px] !text-[8px]"
-                      />
-                    ))}
-                  </div>
-                )}
-                {!holeCardsVisible &&
-                  state.street === "preflop" &&
-                  (seat.cardCount > 0 || seat.holeCards.length > 0) && (
-                    <div className="text-[8px] uppercase tracking-wide text-[var(--muted)]">
-                      Dealing…
-                    </div>
-                  )}
-              </div>
-              {seat.bet > 0 && !(seat.lastAction === "check" || seat.lastAction === "fold") && (
-                <div className="seat-bet-chip">{seat.bet}</div>
+
+              {showCards && (
+                <div className="seat-hole-cards">
+                  {hole.map((c, idx) => (
+                    <PlayingCard
+                      key={`${seat.userId}-${state.handNumber}-${idx}`}
+                      card={c}
+                      delayMs={idx * 70}
+                    />
+                  ))}
+                </div>
               )}
+
+              <div className="seat-avatar-wrap">
+                <PlayerAvatar userId={seat.userId} name={displayName} size="md" />
+                {isDealer && (
+                  <span
+                    className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-[var(--gold)] text-[10px] font-bold text-[#1a1205] shadow"
+                    title="Dealer button"
+                  >
+                    D
+                  </span>
+                )}
+                {isWinner && (
+                  <span className="absolute -left-1 -top-1 rounded-full bg-[var(--gold)] px-1.5 py-0.5 text-[8px] font-bold text-[#1a1205]">
+                    WIN
+                  </span>
+                )}
+              </div>
+
+              <div className="seat-nameplate">
+                <div className="seat-nameplate-name" title={displayName}>
+                  {displayName}
+                </div>
+                <div className="seat-nameplate-stack">{seat.stack.toLocaleString()}</div>
+              </div>
+
+              {active && !waiting && !showWinner && (
+                <span className="seat-timer-slot">
+                  <TurnTimer secondsLeft={secondsLeft} total={turnSeconds} />
+                </span>
+              )}
+
+              {seat.bet > 0 && !(seat.lastAction === "check" || seat.lastAction === "fold") && (
+                <ChipPile amount={seat.bet} />
+              )}
+
               {isAdmin && isBot(seat.userId) && waiting && (
                 <button
                   type="button"
                   disabled={busy}
                   onClick={() => void kickBotSeat(seat.userId, displayName)}
-                  className="mt-0.5 self-center rounded-full border border-[rgba(179,58,74,0.45)] bg-[rgba(179,58,74,0.15)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--crimson)] hover:bg-[rgba(179,58,74,0.3)] disabled:opacity-50"
+                  className="mt-1 rounded-full border border-[rgba(179,58,74,0.45)] bg-[rgba(179,58,74,0.15)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--crimson)] hover:bg-[rgba(179,58,74,0.3)] disabled:opacity-50"
                   title="Admin: kick this bot"
                 >
                   Kick
