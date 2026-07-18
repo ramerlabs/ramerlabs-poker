@@ -309,20 +309,32 @@ a {
 .felt-brand-center {
   text-align: center;
   pointer-events: none;
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.5rem;
 }
 
 .felt-brand-center .brand-name {
-  font-size: clamp(0.7rem, 1.5vw, 0.95rem);
-  font-weight: 700;
-  letter-spacing: 0.28em;
+  font-size: clamp(1.35rem, 3.8vw, 2.35rem);
+  font-weight: 800;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.14);
-  text-shadow: none;
+  color: rgba(245, 223, 160, 0.42);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.35);
+  line-height: 1.05;
 }
 
 .felt-brand-center .brand-table {
-  display: none;
+  display: block;
+  margin-top: 0.35rem;
+  font-size: clamp(0.65rem, 1.4vw, 0.85rem);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.28);
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .board-row {
