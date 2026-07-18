@@ -341,13 +341,13 @@ a {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.45rem;
+  gap: 0.55rem;
 }
 
 .board-slot {
-  width: 46px;
-  height: 66px;
-  border-radius: 8px;
+  width: 58px;
+  height: 84px;
+  border-radius: 10px;
   border: 1px dashed rgba(255, 255, 255, 0.18);
   background: rgba(0, 0, 0, 0.08);
   flex: 0 0 auto;
@@ -355,21 +355,31 @@ a {
 
 .board-card.playing-card,
 .playing-card.board-card {
-  width: 46px;
-  height: 66px;
+  width: 58px;
+  height: 84px;
   flex: 0 0 auto;
+  border-radius: 10px;
+}
+
+.playing-card.board-card > div {
+  transform: scale(1.15);
 }
 
 @media (min-width: 768px) {
   .board-slot,
   .board-card.playing-card,
   .playing-card.board-card {
-    width: 56px;
-    height: 80px;
+    width: 72px;
+    height: 104px;
+    border-radius: 12px;
+  }
+
+  .playing-card.board-card > div {
+    transform: scale(1.35);
   }
 
   .board-row {
-    gap: 0.55rem;
+    gap: 0.7rem;
   }
 }
 
