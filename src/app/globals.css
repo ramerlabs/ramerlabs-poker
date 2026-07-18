@@ -553,22 +553,44 @@ a {
 }
 
 .seat-empty-classic {
-  display: grid;
-  place-items: center;
-  width: 52px;
-  height: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  min-width: 58px;
+  height: 58px;
+  padding: 0.35rem 0.45rem 0.4rem;
   border-radius: 999px;
-  border: 1.5px dashed rgba(255, 255, 255, 0.22);
+  border: 1.5px dashed rgba(255, 255, 255, 0.28);
   background: rgba(20, 24, 32, 0.55);
-  color: rgba(180, 190, 205, 0.45);
-  font-size: 1.25rem;
+  color: rgba(180, 190, 205, 0.55);
   transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.seat-empty-icon {
+  font-size: 1.05rem;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+.seat-empty-label {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1;
+  color: rgba(210, 218, 230, 0.72);
 }
 
 .seat-empty-classic:hover:not(:disabled) {
   border-color: rgba(230, 195, 92, 0.55);
-  color: rgba(230, 195, 92, 0.75);
+  color: rgba(230, 195, 92, 0.85);
   background: rgba(30, 36, 48, 0.75);
+}
+
+.seat-empty-classic:hover:not(:disabled) .seat-empty-label {
+  color: rgba(230, 195, 92, 0.9);
 }
 
 .seat-empty-classic:disabled {
@@ -580,6 +602,10 @@ a {
   border-color: rgba(230, 195, 92, 0.65);
   color: var(--gold-soft);
   background: rgba(230, 195, 92, 0.12);
+}
+
+.seat-empty-classic.is-reserved .seat-empty-label {
+  color: var(--gold-soft);
 }
 
 /* Poker chips */

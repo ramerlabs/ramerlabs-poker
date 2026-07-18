@@ -9,6 +9,7 @@ import { Badge, Button, Input } from "@/components/ui";
 import type { PublicTableState } from "@/lib/poker/types";
 import { DEFAULT_TURN_SECONDS } from "@/lib/poker/types";
 import {
+  armAudioUnlock,
   isMuted,
   loadMutePreference,
   playSfx,
@@ -205,6 +206,7 @@ export function PokerTable({
   const [timeoutNotice, setTimeoutNotice] = useState(false);
   const lastActionKey = useRef<string>("");
   const lastHandRef = useRef(0);
+  const lastStreetRef = useRef(state.street);
   const lastDealAnimRef = useRef(0);
   const lastWinKey = useRef("");
   const lastTickRef = useRef<number | null>(null);
@@ -214,6 +216,7 @@ export function PokerTable({
 
   useEffect(() => {
     setMutedState(loadMutePreference());
+    return armAudioUnlock();
   }, []);
 
   useEffect(() => {
@@ -306,21 +309,29 @@ export function PokerTable({
     }
   }, [holeCardsVisible, state.street, state.streetHoldUntil, state.seats, state.lastAction]);
 
-  // Deal / win sounds — only for the human player at this table
+  // Deal / win sounds for anyone on the table page
   useEffect(() => {
-    const me = session?.user?.id;
-    const seatedHere = Boolean(me && state.seats.some((s) => s.userId === me));
-    if (
-      seatedHere &&
-      state.handNumber > lastHandRef.current &&
-      state.street === "preflop"
-    ) {
+    if (state.handNumber > lastHandRef.current && state.street === "preflop" && state.handNumber > 0) {
+      void unlockAudio();
       playSfx("deal");
-      setTimeout(() => playSfx("deal"), 90);
-      setTimeout(() => playSfx("deal"), 180);
+      setTimeout(() => playSfx("deal"), 100);
+      setTimeout(() => playSfx("deal"), 200);
     }
     lastHandRef.current = state.handNumber;
-  }, [state.handNumber, state.street, state.seats, session?.user?.id]);
+  }, [state.handNumber, state.street]);
+
+  // Board cards (flop / turn / river)
+  useEffect(() => {
+    const prev = lastStreetRef.current;
+    lastStreetRef.current = state.street;
+    if (prev === state.street) return;
+    if (state.street === "flop") {
+      playSfx("deal");
+      setTimeout(() => playSfx("deal"), 90);
+    } else if (state.street === "turn" || state.street === "river") {
+      playSfx("deal");
+    }
+  }, [state.street]);
 
   useEffect(() => {
     if (!state.winners?.length) {
@@ -334,15 +345,13 @@ export function PokerTable({
     const key = `${state.handNumber}-${state.winners.map((w) => w.userId).join(",")}`;
     if (key !== lastWinKey.current) {
       lastWinKey.current = key;
-      const me = session?.user?.id;
-      if (me && state.winners.some((w) => w.userId === me)) {
-        playSfx("win");
-      }
+      void unlockAudio();
+      playSfx("win");
       setWinnerVisible(true);
     }
     const hide = setTimeout(() => setWinnerVisible(false), 4800);
     return () => clearTimeout(hide);
-  }, [state.winners, state.street, state.handNumber, session?.user?.id]);
+  }, [state.winners, state.street, state.handNumber]);
 
   const refresh = useCallback(async () => {
     const res = await fetch(`/api/rooms/${roomId}`, { cache: "no-store" });
@@ -378,6 +387,8 @@ export function PokerTable({
           channel.subscribe("state", () => {
             void refresh();
           });
+          // Backup poll so street pauses / bot clocks keep advancing even if no Ably event fires
+          poll = setInterval(() => void refresh(), 900);
           return;
         }
       } catch {
@@ -452,7 +463,7 @@ export function PokerTable({
     return () => clearInterval(id);
   }, [state.actionSeat, state.turnStartedAt, state.handNumber, turnSeconds, waiting]);
 
-  // Chips fly from the acting seat into the pot; SFX only for your own actions
+  // Chips fly from the acting seat into the pot; SFX for every visible action
   useEffect(() => {
     const action = state.lastAction;
     if (!action) return;
@@ -460,12 +471,10 @@ export function PokerTable({
     if (key === lastActionKey.current) return;
     lastActionKey.current = key;
 
-    const isMine = action.userId === session?.user?.id;
-    if (isMine) {
-      if (action.action === "fold") playSfx("fold");
-      else if (action.action === "check") playSfx("check");
-      else if (["bet", "raise", "call", "allin"].includes(action.action)) playSfx("chip");
-    }
+    void unlockAudio();
+    if (action.action === "fold") playSfx("fold");
+    else if (action.action === "check") playSfx("check");
+    else if (["bet", "raise", "call", "allin"].includes(action.action)) playSfx("chip");
 
     const moneyActions = new Set(["bet", "raise", "call", "allin"]);
     if (!moneyActions.has(action.action) || !(action.amount && action.amount > 0)) return;
@@ -550,11 +559,14 @@ export function PokerTable({
   }
 
   function toggleMute() {
-    unlockAudio();
+    void unlockAudio();
     const next = !isMuted();
     setMuted(next);
     setMutedState(next);
-    if (!next) playSfx("click");
+    if (!next) {
+      playSfx("click");
+      setTimeout(() => playSfx("chip"), 80);
+    }
   }
 
   function acknowledgeAttention() {
@@ -750,8 +762,15 @@ export function PokerTable({
           {state.rakePercent > 0 && <Badge tone="gold">Rake {state.rakePercent}%</Badge>}
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="ghost" className="!px-3 !py-2 text-xs" onClick={toggleMute}>
-            {muted ? "Sound off" : "Sound on"}
+          <Button
+            variant="ghost"
+            className="!px-3 !py-2 text-xs"
+            onClick={() => {
+              toggleMute();
+            }}
+            title={muted ? "Unmute table sounds" : "Mute table sounds"}
+          >
+            {muted ? "🔇 Sound off" : "🔊 Sound on"}
           </Button>
           {!waiting && state.actionSeat != null && (
             <>
@@ -959,7 +978,12 @@ export function PokerTable({
                       : "You are already seated"
                   }
                 >
-                  ♣
+                  <span className="seat-empty-icon" aria-hidden>
+                    ♣
+                  </span>
+                  <span className="seat-empty-label">
+                    {reservedHere ? "Yours" : "Open"}
+                  </span>
                 </button>
               </div>
             );

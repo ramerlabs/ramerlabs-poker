@@ -63,7 +63,7 @@ export interface PokerTableState {
   turnSeconds: number;
   /** Do not allow actions until this time (card reveal pause). */
   streetHoldUntil: number | null;
-  /** Extra community cards still to deal before betting resumes (flop = 2 after first). */
+  /** Extra community cards still to deal (legacy staggered flop; normally 0). */
   pendingCommunityDeals: number;
   /** Bot planning strength 0–100 (admin-configured). */
   botSkillPercent: number;

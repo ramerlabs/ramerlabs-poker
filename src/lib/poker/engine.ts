@@ -109,12 +109,17 @@ function advanceStreet(state: PokerTableState) {
   }
 
   if (state.street === "preflop") {
-    // Flop: deal first board card now; two more via continueCommunityDeal
+    // First board street: 2 community cards
     state.street = "flop";
-    dealCommunity(state, 1);
-    state.pendingCommunityDeals = 2;
-    state.streetHoldUntil = Date.now() + streetPauseMs("flop", 2);
-    markTurnClock(state, null); // no betting until all 3 flop cards are out
+    dealCommunity(state, 2);
+    state.pendingCommunityDeals = 0;
+    state.streetHoldUntil = Date.now() + streetPauseMs("flop");
+    const first = nextOccupiedSeat(
+      state,
+      state.dealerSeat,
+      (s) => !s.folded && !s.allIn && !s.sittingOut,
+    );
+    markTurnClock(state, first);
     return;
   }
 
@@ -218,7 +223,7 @@ function finishHand(state: PokerTableState) {
     const winner = alive[0]!;
     winner.stack += state.pot;
     let handName = "Everyone else folded";
-    if (winner.holeCards.length >= 2 && state.community.length >= 3) {
+    if (winner.holeCards.length >= 2 && state.community.length >= 2) {
       handName = `${describeHand(evaluateBestHand(winner.holeCards, state.community))} (uncontested)`;
     } else if (winner.holeCards.length >= 2) {
       handName = "Everyone else folded";
