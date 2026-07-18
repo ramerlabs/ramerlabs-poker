@@ -47,15 +47,15 @@ const DEALER_Y = "18%";
 
 /** Seats on the oval rim — kept inward so chips are not clipped. */
 const SEAT_LAYOUT: Record<number, { left: string; top: string }> = {
-  0: { left: "50%", top: "6%" },
-  1: { left: "78%", top: "14%" },
-  2: { left: "92%", top: "42%" },
-  3: { left: "78%", top: "78%" },
-  4: { left: "50%", top: "92%" },
-  5: { left: "22%", top: "78%" },
-  6: { left: "8%", top: "42%" },
-  7: { left: "22%", top: "14%" },
-  8: { left: "65%", top: "8%" },
+  0: { left: "50%", top: "8%" },
+  1: { left: "78%", top: "18%" },
+  2: { left: "90%", top: "45%" },
+  3: { left: "78%", top: "75%" },
+  4: { left: "50%", top: "88%" },
+  5: { left: "22%", top: "75%" },
+  6: { left: "10%", top: "45%" },
+  7: { left: "22%", top: "18%" },
+  8: { left: "65%", top: "10%" },
 };
 
 function isBot(userId: string) {
@@ -771,9 +771,9 @@ export function PokerTable({
         </div>
       )}
 
-      <div className="table-stage relative mx-auto w-full max-w-5xl px-2 py-3 sm:px-6 sm:py-5">
-      <div className="relative mx-auto aspect-[16/10] w-full">
-      <div className="felt-table absolute inset-0 overflow-hidden rounded-[999px]">
+      <div className="table-stage relative mx-auto w-full max-w-5xl">
+        <div className="table-felt-wrap relative mx-auto aspect-[16/10] w-full max-w-4xl">
+          <div className="felt-table absolute inset-0 overflow-hidden rounded-[999px]">
         {/* Center: brand + community cards + pot */}
         <div className="pointer-events-none absolute left-1/2 top-[54%] z-10 flex w-[min(90%,400px)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2.5">
           <div className="felt-brand-center">
