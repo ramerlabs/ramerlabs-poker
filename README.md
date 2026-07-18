@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RamerLabs Poker
 
-## Getting Started
+Premium Texas Hold'em SaaS platform built with Next.js (App Router), Prisma, Neon PostgreSQL, NextAuth, and Ably (with polling fallback).
 
-First, run the development server:
+## Stack
+
+- Next.js 16 + TypeScript + Tailwind CSS
+- Prisma + Neon PostgreSQL
+- NextAuth (Auth.js) credentials
+- Ably realtime (optional) — polls every 2s when `ABLY_API_KEY` is unset
+- Vercel-ready serverless API routes
+
+## Quick start
 
 ```bash
+npm install
+cp .env.example .env.local
+# set DATABASE_URL, AUTH_SECRET, NEXTAUTH_URL
+npx prisma db push
+npm run db:seed
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Seed accounts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Email | Password | Role |
+| --- | --- | --- |
+| admin@ramerlabs.com | password123 | ADMIN |
+| player@ramerlabs.com | password123 | USER |
 
-## Learn More
+New registrations receive **1,000 credits**.
 
-To learn more about Next.js, take a look at the following resources:
+## Environment
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Neon Postgres connection string |
+| `AUTH_SECRET` | NextAuth secret |
+| `NEXTAUTH_URL` | App URL |
+| `ABLY_API_KEY` | Optional Ably key for live table sync |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Never commit `.env` / `.env.local`. Rotate any credentials that were shared in chat.
 
-## Deploy on Vercel
+## Features
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- Public **FREE** rooms (credits) and private **REAL** rooms (invite codes)
+- Texas Hold'em engine: shuffle, deal, blinds, streets, hand evaluation
+- Split wallet: Credits vs Real Cash + currency switcher (USD/PHP)
+- Mock **USDT** / **GCash** deposit & withdrawal gateways
+- Admin currency toggle and payment parameter management
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Deploy (Vercel)
+
+1. Push to GitHub and import the project in Vercel
+2. Set the same env vars in the Vercel project
+3. Build command: `prisma generate && next build` (postinstall already runs generate)
+4. Run `prisma db push` / migrate against Neon before first deploy
+
+## Scripts
+
+- `npm run dev` — local server
+- `npm run build` — production build
+- `npm run db:push` — sync Prisma schema
+- `npm run db:seed` — seed admin, currencies, sample rooms

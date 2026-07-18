@@ -1,0 +1,147 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum RoomType {
+  FREE
+  REAL
+}
+
+enum RoomStatus {
+  WAITING
+  ACTIVE
+  CLOSED
+}
+
+enum TransactionGateway {
+  USDT
+  GCASH
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum SeatStatus {
+  SEATED
+  FOLDED
+  ALL_IN
+  SITTING_OUT
+}
+
+model User {
+  id                String        @id @default(cuid())
+  email             String        @unique
+  name              String?
+  passwordHash      String
+  role              UserRole      @default(USER)
+  creditsBalance    Decimal       @default(1000) @db.Decimal(18, 2)
+  realMoneyBalance  Decimal       @default(0) @db.Decimal(18, 2)
+  currentCurrency   String        @default("USD")
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  roomsCreated      Room[]        @relation("RoomCreator")
+  roomSeats         RoomPlayer[]
+  transactions      Transaction[]
+
+  @@index([email])
+}
+
+model Room {
+  id          String       @id @default(cuid())
+  name        String
+  type        RoomType
+  currency    String
+  buyIn       Decimal      @db.Decimal(18, 2)
+  smallBlind  Decimal      @db.Decimal(18, 2)
+  bigBlind    Decimal      @db.Decimal(18, 2)
+  maxPlayers  Int          @default(6)
+  inviteCode  String?      @unique
+  isPrivate   Boolean      @default(false)
+  status      RoomStatus   @default(WAITING)
+  creatorId   String
+  creator     User         @relation("RoomCreator", fields: [creatorId], references: [id])
+  players     RoomPlayer[]
+  gameState   GameState?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([type, status])
+  @@index([inviteCode])
+}
+
+model RoomPlayer {
+  id        String     @id @default(cuid())
+  roomId    String
+  userId    String
+  seat      Int
+  stack     Decimal    @db.Decimal(18, 2)
+  status    SeatStatus @default(SEATED)
+  joinedAt  DateTime   @default(now())
+  room      Room       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@unique([roomId, seat])
+  @@index([userId])
+}
+
+model Transaction {
+  id          String              @id @default(cuid())
+  userId      String
+  amount      Decimal             @db.Decimal(18, 2)
+  currency    String
+  gateway     TransactionGateway
+  type        TransactionType
+  status      TransactionStatus   @default(PENDING)
+  reference   String?
+  metadata    Json?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model GameState {
+  id        String   @id @default(cuid())
+  roomId    String   @unique
+  version   Int      @default(1)
+  state     Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+}
+
+model CurrencyConfig {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  name            String
+  enabled         Boolean  @default(true)
+  usdtAddress     String?
+  gcashMerchantId String?
+  minDeposit      Decimal  @default(10) @db.Decimal(18, 2)
+  minWithdrawal   Decimal  @default(10) @db.Decimal(18, 2)
+  paymentParams   Json?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+}
