@@ -71,6 +71,7 @@ export async function GET(req: Request, { params }: Params) {
   const game = await getPublicGameState(id, authResult.userId);
   const waitPosition =
     room.waitlist.findIndex((w) => w.userId === authResult.userId) + 1 || null;
+  const isAdmin = authResult.role === "ADMIN";
 
   return NextResponse.json({
     room: {
@@ -78,11 +79,12 @@ export async function GET(req: Request, { params }: Params) {
       buyIn: toNumber(room.buyIn),
       smallBlind: toNumber(room.smallBlind),
       bigBlind: toNumber(room.bigBlind),
-      targetBots: room.targetBots,
+      // Hide bot roster details from regular players
+      targetBots: isAdmin ? room.targetBots : undefined,
       players: room.players.map((p) => ({
         ...p,
         stack: toNumber(p.stack),
-        isBot: isBotUserId(p.userId),
+        ...(isAdmin ? { isBot: isBotUserId(p.userId) } : {}),
       })),
       waitlist: room.waitlist.map((w) => ({
         userId: w.userId,
@@ -90,8 +92,12 @@ export async function GET(req: Request, { params }: Params) {
         preferredSeat: w.preferredSeat,
         createdAt: w.createdAt,
       })),
-      botCount: room.players.filter((p) => isBotUserId(p.userId)).length,
-      humanCount: room.players.filter((p) => !isBotUserId(p.userId)).length,
+      ...(isAdmin
+        ? {
+            botCount: room.players.filter((p) => isBotUserId(p.userId)).length,
+            humanCount: room.players.filter((p) => !isBotUserId(p.userId)).length,
+          }
+        : {}),
     },
     me: {
       seated,

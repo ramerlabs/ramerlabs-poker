@@ -217,33 +217,39 @@ a {
 }
 
 .dealer-figure {
-  position: absolute;
-  left: 50%;
-  top: 16%;
+  position: relative;
+  left: auto;
+  top: auto;
   z-index: 14;
-  transform: translate(-50%, -50%);
+  transform: none;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.15rem;
+  margin-bottom: 0.1rem;
   pointer-events: none;
 }
 
 .dealer-figure .dealer-avatar {
   position: relative;
-  width: 36px;
-  height: 36px;
+  width: 72px;
+  height: 72px;
   border-radius: 999px;
-  border: 2px solid rgba(212, 168, 83, 0.75);
-  background:
-    radial-gradient(circle at 35% 30%, #f0d59a, #b8892d 55%, #6a4a14);
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.4);
+  border: 2.5px solid rgba(212, 168, 83, 0.95);
+  background: #1a1205;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5);
   display: grid;
   place-items: center;
-  font-size: 0.65rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  color: #1a1205;
+  overflow: hidden;
+}
+
+.dealer-figure .dealer-lady-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 22%;
+  border-radius: 999px;
+  display: block;
 }
 
 .dealer-figure .dealer-deck {
@@ -309,7 +315,7 @@ a {
 .felt-brand-center {
   text-align: center;
   pointer-events: none;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.35rem;
 }
 
 .felt-brand-center .brand-name {
@@ -1052,4 +1058,103 @@ a {
   flex-wrap: wrap;
   justify-content: center;
   gap: 0.45rem;
+}
+
+/* Player connection quality meter */
+.conn-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.28rem 0.65rem 0.28rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(10, 14, 22, 0.72);
+  backdrop-filter: blur(8px);
+  font-size: 0.68rem;
+  line-height: 1.1;
+  user-select: none;
+}
+
+.conn-meter-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+
+.conn-bar {
+  width: 3px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.conn-bar:nth-child(1) {
+  height: 5px;
+}
+.conn-bar:nth-child(2) {
+  height: 8px;
+}
+.conn-bar:nth-child(3) {
+  height: 12px;
+}
+
+.conn-bar.is-on {
+  background: currentColor;
+}
+
+.conn-meter-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.conn-meter-label {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.conn-meter-ms {
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.conn-meter.is-good {
+  color: var(--success);
+  border-color: rgba(62, 207, 142, 0.35);
+}
+
+.conn-meter.is-fair {
+  color: var(--gold-soft);
+  border-color: rgba(230, 195, 92, 0.4);
+}
+
+.conn-meter.is-poor {
+  color: #f0a060;
+  border-color: rgba(240, 160, 96, 0.4);
+}
+
+.conn-meter.is-offline {
+  color: var(--crimson);
+  border-color: rgba(194, 59, 74, 0.45);
+  animation: conn-pulse 1.2s ease-in-out infinite;
+}
+
+.conn-meter-on-table {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  z-index: 30;
+  pointer-events: auto;
+}
+
+@keyframes conn-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
 }

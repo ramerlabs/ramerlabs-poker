@@ -1,7 +1,8 @@
 import { cn } from "@/lib/utils";
 
-const BOT_SKINS = ["#7ec8e3", "#9ad0a0", "#e8b4b8", "#c9b1ff", "#f0c674", "#f5a97f"];
-const BOT_EYES = ["#1a1a2e", "#0d3b2e", "#3b1f4a", "#1f2a44"];
+const SKINS = ["#e8c4a8", "#d4a574", "#c68642", "#f1c27d", "#ffdbac", "#e0ac69"];
+const HAIR = ["#3a2a1e", "#1a1208", "#5c4033", "#2c1a0e", "#4a3728", "#0d0d0d"];
+const LIPS = ["#b33a4a", "#a04555", "#c45c6a"];
 
 function hash(input: string) {
   let h = 0;
@@ -9,64 +10,36 @@ function hash(input: string) {
   return h;
 }
 
-function BotFace({ seed }: { seed: string }) {
+/** Seeded human-style face — same treatment for every seat (no bot tells). */
+function Face({ seed }: { seed: string }) {
   const h = hash(seed);
-  const skin = BOT_SKINS[h % BOT_SKINS.length]!;
-  const eye = BOT_EYES[(h >> 3) % BOT_EYES.length]!;
-  const antenna = h % 2 === 0;
-  const smile = (h >> 5) % 3; // 0 flat, 1 smile, 2 grin
-  const gradId = `botShine-${h.toString(36)}`;
+  const skin = SKINS[h % SKINS.length]!;
+  const hair = HAIR[(h >> 3) % HAIR.length]!;
+  const lip = LIPS[(h >> 6) % LIPS.length]!;
+  const smile = (h >> 5) % 3;
 
-  return (
-    <svg viewBox="0 0 64 64" className="h-full w-full" aria-hidden>
-      <defs>
-        <radialGradient id={gradId} cx="30%" cy="30%" r="70%">
-          <stop offset="0%" stopColor="#fff" />
-          <stop offset="100%" stopColor="transparent" />
-        </radialGradient>
-      </defs>
-      <circle cx="32" cy="34" r="22" fill={skin} />
-      <circle cx="32" cy="34" r="22" fill={`url(#${gradId})`} opacity="0.35" />
-      {antenna && (
-        <>
-          <line x1="32" y1="12" x2="32" y2="4" stroke="#d4a853" strokeWidth="2" />
-          <circle cx="32" cy="3" r="2.5" fill="#f0d59a" />
-        </>
-      )}
-      <rect x="16" y="26" width="32" height="14" rx="7" fill="#0e1624" opacity="0.85" />
-      <circle cx="24" cy="33" r="3.2" fill={eye} />
-      <circle cx="40" cy="33" r="3.2" fill={eye} />
-      <circle cx="23" cy="32" r="1" fill="#fff" opacity="0.7" />
-      <circle cx="39" cy="32" r="1" fill="#fff" opacity="0.7" />
-      {smile === 0 && (
-        <line x1="24" y1="46" x2="40" y2="46" stroke="#1a1a2e" strokeWidth="2" strokeLinecap="round" />
-      )}
-      {smile === 1 && (
-        <path d="M24 45 Q32 52 40 45" fill="none" stroke="#1a1a2e" strokeWidth="2" strokeLinecap="round" />
-      )}
-      {smile === 2 && (
-        <path d="M23 44 Q32 54 41 44" fill="#1a1a2e" stroke="#1a1a2e" strokeWidth="1" />
-      )}
-    </svg>
-  );
-}
-
-function HumanFace() {
   return (
     <svg viewBox="0 0 64 64" className="h-full w-full" aria-hidden>
       <circle cx="32" cy="32" r="30" fill="#2a3348" />
-      <circle cx="32" cy="36" r="18" fill="#e8c4a8" />
-      {/* hair */}
-      <path d="M14 34 C16 16 48 16 50 34 L48 28 C44 18 20 18 16 28 Z" fill="#3a2a1e" />
+      <circle cx="32" cy="36" r="18" fill={skin} />
+      <path d="M14 34 C16 16 48 16 50 34 L48 28 C44 18 20 18 16 28 Z" fill={hair} />
       <circle cx="24" cy="34" r="2.4" fill="#1a1a2e" />
       <circle cx="40" cy="34" r="2.4" fill="#1a1a2e" />
       <circle cx="23.2" cy="33.2" r="0.8" fill="#fff" opacity="0.75" />
       <circle cx="39.2" cy="33.2" r="0.8" fill="#fff" opacity="0.75" />
-      <path d="M26 44 Q32 48 38 44" fill="none" stroke="#b33a4a" strokeWidth="1.8" strokeLinecap="round" />
+      {smile === 0 && (
+        <line x1="26" y1="45" x2="38" y2="45" stroke={lip} strokeWidth="1.8" strokeLinecap="round" />
+      )}
+      {smile === 1 && (
+        <path d="M26 44 Q32 48 38 44" fill="none" stroke={lip} strokeWidth="1.8" strokeLinecap="round" />
+      )}
+      {smile === 2 && (
+        <path d="M26 43 Q32 50 38 43" fill="none" stroke={lip} strokeWidth="1.8" strokeLinecap="round" />
+      )}
       <path
         d="M20 28 Q24 24 28 28"
         fill="none"
-        stroke="#3a2a1e"
+        stroke={hair}
         strokeWidth="1.4"
         strokeLinecap="round"
         opacity="0.5"
@@ -74,7 +47,7 @@ function HumanFace() {
       <path
         d="M36 28 Q40 24 44 28"
         fill="none"
-        stroke="#3a2a1e"
+        stroke={hair}
         strokeWidth="1.4"
         strokeLinecap="round"
         opacity="0.5"
@@ -94,7 +67,6 @@ export function PlayerAvatar({
   className?: string;
   size?: "sm" | "md" | "lg";
 }) {
-  const bot = userId.startsWith("bot_");
   const sizes = { sm: "h-8 w-8", md: "h-11 w-11", lg: "h-14 w-14" };
 
   return (
@@ -106,12 +78,7 @@ export function PlayerAvatar({
       )}
       title={name}
     >
-      {bot ? <BotFace seed={userId} /> : <HumanFace />}
-      {bot && (
-        <span className="absolute bottom-0 right-0 rounded-sm bg-[var(--gold)] px-0.5 text-[7px] font-bold leading-none text-[#1a1205]">
-          AI
-        </span>
-      )}
+      <Face seed={userId || name || "player"} />
     </div>
   );
 }

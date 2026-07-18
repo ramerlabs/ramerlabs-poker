@@ -17,9 +17,9 @@ type RoomPayload = {
     smallBlind: number;
     bigBlind: number;
     maxPlayers: number;
-    targetBots: number;
-    botCount: number;
-    humanCount: number;
+    targetBots?: number;
+    botCount?: number;
+    humanCount?: number;
     isPrivate: boolean;
     inviteCode: string | null;
     creatorId: string;
@@ -244,8 +244,8 @@ export default function RoomDetailPage() {
           </div>
           <p className="mt-2 text-sm text-[var(--muted)]">
             Blinds {data.room.smallBlind}/{data.room.bigBlind} · Buy-in {data.room.buyIn}{" "}
-            {data.room.currency} · {data.room.humanCount} humans · {data.room.botCount}/
-            {data.room.targetBots} bots · {data.room.waitlist.length} waiting
+            {data.room.currency} · {data.room.players.length}/{data.room.maxPlayers} seated
+            {data.room.waitlist.length > 0 ? ` · ${data.room.waitlist.length} waiting` : ""}
           </p>
           {data.room.isPrivate && data.room.inviteCode && (
             <p className="mt-1 font-mono text-xs text-[var(--gold)]">

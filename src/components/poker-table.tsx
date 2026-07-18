@@ -41,10 +41,66 @@ type DealThrow = {
   delay: number;
 };
 
+type ConnLevel = "good" | "fair" | "poor" | "offline";
+
+function connectionLevel(online: boolean, fails: number, latencyMs: number | null): ConnLevel {
+  if (!online || fails >= 3) return "offline";
+  if (fails > 0) return "poor";
+  if (latencyMs == null) return "fair";
+  if (latencyMs > 800) return "poor";
+  if (latencyMs > 280) return "fair";
+  return "good";
+}
+
+function ConnectionMeter({
+  level,
+  latencyMs,
+  className,
+}: {
+  level: ConnLevel;
+  latencyMs: number | null;
+  className?: string;
+}) {
+  const label =
+    level === "good"
+      ? "Good"
+      : level === "fair"
+        ? "Fair"
+        : level === "poor"
+          ? "Weak"
+          : "Offline";
+  const bars = level === "good" ? 3 : level === "fair" ? 2 : level === "poor" ? 1 : 0;
+  const detail =
+    level === "offline"
+      ? "No connection"
+      : latencyMs != null
+        ? `${latencyMs} ms`
+        : "Checking…";
+
+  return (
+    <div
+      className={cn("conn-meter", `is-${level}`, className)}
+      title={`Your connection: ${label} · ${detail}`}
+      role="status"
+      aria-live="polite"
+    >
+      <span className="conn-meter-bars" aria-hidden>
+        {[1, 2, 3].map((n) => (
+          <span key={n} className={cn("conn-bar", n <= bars && "is-on")} />
+        ))}
+      </span>
+      <span className="conn-meter-text">
+        <span className="conn-meter-label">Net {label}</span>
+        <span className="conn-meter-ms">{detail}</span>
+      </span>
+    </div>
+  );
+}
+
 const POT_X = "50%";
 const POT_Y = "58%";
 const DEALER_X = "50%";
-const DEALER_Y = "18%";
+const DEALER_Y = "42%";
 
 /** Seats on the oval rim — kept inward so chips are not clipped. */
 const SEAT_LAYOUT: Record<number, { left: string; top: string }> = {
@@ -192,7 +248,9 @@ export function PokerTable({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
-  const [syncMode, setSyncMode] = useState<"ably" | "polling">("polling");
+  const [online, setOnline] = useState(true);
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  const [connFails, setConnFails] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(DEFAULT_TURN_SECONDS);
   const [betFx, setBetFx] = useState<BetFx[]>([]);
   const [dealThrows, setDealThrows] = useState<DealThrow[]>([]);
@@ -217,6 +275,18 @@ export function PokerTable({
   useEffect(() => {
     setMutedState(loadMutePreference());
     return armAudioUnlock();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sync = () => setOnline(navigator.onLine);
+    sync();
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
+    };
   }, []);
 
   useEffect(() => {
@@ -354,14 +424,25 @@ export function PokerTable({
   }, [state.winners, state.street, state.handNumber]);
 
   const refresh = useCallback(async () => {
-    const res = await fetch(`/api/rooms/${roomId}`, { cache: "no-store" });
-    if (!res.ok) return;
-    const json = await readJson<{
-      game?: { state?: PublicTableState };
-      room?: { players?: RoomPlayer[] };
-    }>(res);
-    if (json.game?.state) setState(json.game.state);
-    if (json.room?.players) setPlayers(json.room.players);
+    const started = performance.now();
+    try {
+      const res = await fetch(`/api/rooms/${roomId}`, { cache: "no-store" });
+      const ms = Math.round(performance.now() - started);
+      if (!res.ok) {
+        setConnFails((n) => n + 1);
+        return;
+      }
+      const json = await readJson<{
+        game?: { state?: PublicTableState };
+        room?: { players?: RoomPlayer[] };
+      }>(res);
+      setLatencyMs(ms);
+      setConnFails(0);
+      if (json.game?.state) setState(json.game.state);
+      if (json.room?.players) setPlayers(json.room.players);
+    } catch {
+      setConnFails((n) => n + 1);
+    }
   }, [roomId]);
 
   useEffect(() => {
@@ -379,7 +460,6 @@ export function PokerTable({
         if (cancelled) return;
 
         if (tokenJson.enabled && tokenJson.tokenRequest) {
-          setSyncMode("ably");
           client = new Ably.Realtime({
             authCallback: (_, cb) => cb(null, tokenJson.tokenRequest as Ably.TokenRequest),
           });
@@ -395,7 +475,6 @@ export function PokerTable({
         // Fall through to polling
       }
       if (cancelled) return;
-      setSyncMode("polling");
       poll = setInterval(() => void refresh(), 600);
     }
 
@@ -632,12 +711,12 @@ export function PokerTable({
     try {
       const res = await fetch(`/api/rooms/${roomId}/bots`, { method: "POST" });
       const json = await readJson<{ error?: string; bot?: { name: string } }>(res);
-      if (!res.ok) throw new Error(json.error || "Could not add bot");
-      setHint(`${json.bot?.name ?? "Bot"} sat down. Press Deal hand to play.`);
+      if (!res.ok) throw new Error(json.error || "Could not add opponent");
+      setHint(`${json.bot?.name ?? "Player"} sat down.`);
       await refresh();
       onPlayersChanged?.();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not add bot");
+      setError(e instanceof Error ? e.message : "Could not add opponent");
     } finally {
       setBusy(false);
     }
@@ -750,6 +829,7 @@ export function PokerTable({
   const primaryWinner = winners[0];
   const winnerIds = new Set(winners.map((w) => w.userId));
   const showPot = !showWinner && livePot > 0;
+  const connLevel = connectionLevel(online, connFails, latencyMs);
 
   return (
     <div className="space-y-4">
@@ -757,7 +837,6 @@ export function PokerTable({
         <div className="flex items-center gap-2">
           <Badge>{state.street.toUpperCase()}</Badge>
           <Badge tone="muted">Hand #{state.handNumber}</Badge>
-          <Badge tone="green">Sync: {syncMode}</Badge>
           <Badge tone="muted">{seatedCount} seated</Badge>
           {state.rakePercent > 0 && <Badge tone="gold">Rake {state.rakePercent}%</Badge>}
         </div>
@@ -785,16 +864,34 @@ export function PokerTable({
 
       {waiting && seatedCount < 2 && (
         <div className="rounded-xl border border-[rgba(212,168,83,0.35)] bg-[rgba(212,168,83,0.08)] px-4 py-3 text-sm">
-          Texas Hold&apos;em needs <strong>2+ players</strong>. Bots refill automatically; the table
-          auto-deals when ready.
+          Texas Hold&apos;em needs <strong>2+ players</strong>. The table auto-deals when ready.
         </div>
       )}
 
       <div className="table-stage relative mx-auto w-full max-w-5xl">
+        <ConnectionMeter
+          level={connLevel}
+          latencyMs={latencyMs}
+          className="conn-meter-on-table"
+        />
         <div className="table-felt-wrap relative mx-auto aspect-[16/10] w-full max-w-4xl">
           <div className="felt-table absolute inset-0 overflow-hidden rounded-[999px]">
-        {/* Center: brand + community cards + pot */}
-        <div className="pointer-events-none absolute left-1/2 top-[54%] z-10 flex w-[min(90%,400px)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2.5">
+        {/* Center: dealer + brand + community cards + pot */}
+        <div className="pointer-events-none absolute left-1/2 top-[54%] z-10 flex w-[min(90%,400px)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2">
+          <div className={cn("dealer-figure", dealerDealing && "is-dealing")}>
+            <div className="dealer-avatar" title="Dealer">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/dealer-lady.png"
+                alt="Dealer"
+                className="dealer-lady-img"
+                draggable={false}
+              />
+              {dealerDealing && <span className="dealer-deck" aria-hidden />}
+            </div>
+            {dealerDealing && <div className="dealer-status">Dealing…</div>}
+          </div>
+
           <div className="felt-brand-center">
             <div className="brand-name">{brandName}</div>
             <div className="brand-table">{tableName}</div>
@@ -839,17 +936,6 @@ export function PokerTable({
             </div>
           )}
         </div>
-
-        {/* Compact dealer — deck only while dealing (avoids floating card over brand) */}
-        {!waiting && (
-          <div className={cn("dealer-figure", dealerDealing && "is-dealing")}>
-            <div className="dealer-avatar">
-              D
-              {dealerDealing && <span className="dealer-deck" aria-hidden />}
-            </div>
-            {dealerDealing && <div className="dealer-status">Dealing…</div>}
-          </div>
-        )}
 
         {dealThrows.map((fx) => (
           <div
@@ -1150,7 +1236,7 @@ export function PokerTable({
           <div className="flex flex-wrap items-center gap-2">
             {isAdmin && (
               <Button disabled={busy} onClick={addBot} variant="ghost">
-                Add bot opponent
+                Fill empty seat
               </Button>
             )}
             {isAdmin && seatedCount >= 2 && (
@@ -1162,7 +1248,7 @@ export function PokerTable({
               <p className="text-sm text-[var(--gold-soft)]">Auto-dealing when ready…</p>
             ) : (
               <p className="text-sm text-[var(--muted)]">
-                Waiting for 2+ players — bots keep this table going.
+                Waiting for 2+ players…
               </p>
             )}
           </div>
