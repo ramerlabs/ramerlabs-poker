@@ -7,10 +7,13 @@ export async function GET() {
   if ("error" in authResult && authResult.error) return authResult.error;
 
   if (!isAblyEnabled()) {
+    const hasKey = Boolean(process.env.ABLY_API_KEY?.trim());
     return NextResponse.json({
       enabled: false,
       mode: "polling",
-      message: "ABLY_API_KEY not configured — client will poll for updates",
+      message: hasKey
+        ? "Ably is toggled off (ABLY_ENABLED=false) — client will poll for updates"
+        : "ABLY_API_KEY not configured — client will poll for updates",
     });
   }
 

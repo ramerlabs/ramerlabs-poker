@@ -7,7 +7,7 @@ Premium Texas Hold'em SaaS platform built with Next.js (App Router), Prisma, Neo
 - Next.js 16 + TypeScript + Tailwind CSS
 - Prisma + Neon PostgreSQL
 - NextAuth (Auth.js) credentials
-- Ably realtime (optional) — polls every 2s when `ABLY_API_KEY` is unset
+- Ably realtime (optional) — set `ABLY_ENABLED=false` to force polling even with a key
 - Vercel-ready serverless API routes
 
 ## Quick start
@@ -40,6 +40,7 @@ New registrations receive **1,000 credits**.
 | `AUTH_SECRET` | NextAuth secret |
 | `NEXTAUTH_URL` | App URL |
 | `ABLY_API_KEY` | Optional Ably key for live table sync |
+| `ABLY_ENABLED` | Optional toggle (`true`/`false`). Default on when key is set; set `false` to force polling |
 
 Never commit `.env` / `.env.local`. Rotate any credentials that were shared in chat.
 
