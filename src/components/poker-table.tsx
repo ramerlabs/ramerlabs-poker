@@ -1094,7 +1094,34 @@ export function PokerTable({
           <Badge tone="muted">{seatedCount} seated</Badge>
           {state.rakePercent > 0 && <Badge tone="gold">Rake {state.rakePercent}%</Badge>}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {isAdmin && (
+            <>
+              <Button
+                disabled={busy || seatedCount >= maxPlayers}
+                onClick={addBot}
+                variant="ghost"
+                className="!px-3 !py-2 text-xs"
+                title={
+                  waiting
+                    ? "Add a bot to an open seat"
+                    : "Add a bot (joins when this hand ends if mid-hand)"
+                }
+              >
+                Fill empty seat
+              </Button>
+              {waiting && seatedCount >= 2 && (
+                <Button
+                  disabled={busy}
+                  onClick={() => void act("start")}
+                  variant="ghost"
+                  className="!px-3 !py-2 text-xs"
+                >
+                  Deal now
+                </Button>
+              )}
+            </>
+          )}
           <Button
             variant="ghost"
             className="!px-3 !py-2 text-xs"
@@ -1128,23 +1155,10 @@ export function PokerTable({
         </div>
       )}
 
-      {(waiting && isAdmin) || canActNow ? (
+      {canActNow ? (
       <div className="table-action-dock">
         <div className="flex flex-wrap items-center gap-2">
-          {waiting && isAdmin && (
-            <div className="flex flex-wrap items-center gap-2">
-              <Button disabled={busy} onClick={addBot} variant="ghost">
-                Fill empty seat
-              </Button>
-              {seatedCount >= 2 && (
-                <Button disabled={busy} onClick={() => void act("start")} variant="ghost">
-                  Deal now
-                </Button>
-              )}
-            </div>
-          )}
-          {canActNow && (
-            <div className="action-bar">
+          <div className="action-bar">
               <Button disabled={busy} variant="danger" onClick={() => void act("fold")}>
                 Fold
               </Button>
@@ -1175,7 +1189,6 @@ export function PokerTable({
                 </Button>
               </div>
             </div>
-          )}
         </div>
       </div>
       ) : null}
