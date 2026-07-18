@@ -441,6 +441,45 @@ export async function forceFoldPlayer(roomId: string, userId: string) {
   return (await ensureGameState(roomId)) ?? next;
 }
 
+export async function tipDealer(roomId: string, userId: string, amount?: number) {
+  const state = await ensureGameState(roomId);
+  const seat = state.seats.find((s) => s.userId === userId && !s.sittingOut);
+  if (!seat) throw new Error("Sit at the table to tip the dealer");
+  if (seat.allIn) throw new Error("Can't tip while all-in");
+
+  const tip = Math.max(1, Math.floor(amount ?? Math.max(1, state.smallBlind)));
+  if (seat.stack < tip) throw new Error("Not enough chips to tip");
+
+  // Keep enough for blinds next hand when between hands
+  if (
+    (state.street === "waiting" || state.street === "complete") &&
+    seat.stack - tip < state.bigBlind
+  ) {
+    throw new Error("Keep at least one big blind for the next hand");
+  }
+
+  const next = structuredClone(state) as PokerTableState;
+  const nextSeat = next.seats.find((s) => s.userId === userId);
+  if (!nextSeat) throw new Error("Seat not found");
+  nextSeat.stack -= tip;
+
+  await saveTableState(roomId, next);
+
+  const room = await prisma.room.findUnique({ where: { id: roomId } });
+  if (room) {
+    const settings = await getPlatformSettings();
+    const balances = (settings.houseBalances ?? {}) as Record<string, number>;
+    const currency = room.type === "REAL" ? room.currency : "TIPS";
+    balances[currency] = Number(((balances[currency] ?? 0) + tip).toFixed(2));
+    await prisma.platformSettings.update({
+      where: { id: "default" },
+      data: { houseBalances: balances },
+    });
+  }
+
+  return { state: next, tip };
+}
+
 export async function getPublicGameState(roomId: string, viewerId?: string) {
   const state = await tickRoom(roomId);
   const row = await prisma.gameState.findUnique({ where: { roomId } });

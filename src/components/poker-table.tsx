@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import * as Ably from "ably";
 import { PlayingCard } from "@/components/playing-card";
@@ -16,6 +16,7 @@ import {
   setMuted,
   unlockAudio,
 } from "@/lib/sounds";
+import { getHandHints } from "@/lib/poker/hand-hints";
 import { cn, readJson } from "@/lib/utils";
 
 type RoomPlayer = {
@@ -97,10 +98,10 @@ function ConnectionMeter({
   );
 }
 
-const POT_X = "50%";
-const POT_Y = "58%";
 const DEALER_X = "50%";
-const DEALER_Y = "42%";
+const DEALER_Y = "40%";
+/** Fallback when pot DOM hasn't measured yet (left of center dealer). */
+const POT_FALLBACK = { x: "38%", y: "40%" };
 
 /** Seats on the oval rim — kept inward so chips are not clipped. */
 const SEAT_LAYOUT: Record<number, { left: string; top: string }> = {
@@ -253,6 +254,9 @@ export function PokerTable({
   const [connFails, setConnFails] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(DEFAULT_TURN_SECONDS);
   const [betFx, setBetFx] = useState<BetFx[]>([]);
+  const [potTarget, setPotTarget] = useState(POT_FALLBACK);
+  const feltRef = useRef<HTMLDivElement>(null);
+  const potAnchorRef = useRef<HTMLDivElement>(null);
   const [dealThrows, setDealThrows] = useState<DealThrow[]>([]);
   const [dealerDealing, setDealerDealing] = useState(false);
   const [holeCardsVisible, setHoleCardsVisible] = useState(true);
@@ -491,6 +495,8 @@ export function PokerTable({
     [state.seats, session?.user?.id],
   );
 
+  const tipAmount = Math.max(1, state.smallBlind || 1);
+
   const isMyTurn = mySeat != null && state.actionSeat === mySeat.seat;
   const seatedCount = Math.max(state.seats.length, players.length);
   const waiting = state.street === "waiting" || state.street === "complete";
@@ -505,6 +511,35 @@ export function PokerTable({
     () => state.pot + state.seats.reduce((sum, s) => sum + (s.bet || 0), 0),
     [state.pot, state.seats],
   );
+
+  const measurePotTarget = useCallback(() => {
+    const felt = feltRef.current;
+    const anchor = potAnchorRef.current;
+    if (!felt || !anchor) return;
+    const fr = felt.getBoundingClientRect();
+    const pr = anchor.getBoundingClientRect();
+    if (fr.width < 8 || fr.height < 8) return;
+    const x = ((pr.left + pr.width / 2 - fr.left) / fr.width) * 100;
+    const y = ((pr.top + pr.height / 2 - fr.top) / fr.height) * 100;
+    setPotTarget({
+      x: `${Math.min(95, Math.max(5, x)).toFixed(2)}%`,
+      y: `${Math.min(95, Math.max(5, y)).toFixed(2)}%`,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    measurePotTarget();
+  }, [measurePotTarget, livePot, dealerDealing, state.street, state.handNumber]);
+
+  useEffect(() => {
+    const onResize = () => measurePotTarget();
+    window.addEventListener("resize", onResize);
+    const id = window.setInterval(measurePotTarget, 800);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.clearInterval(id);
+    };
+  }, [measurePotTarget]);
 
   const showWinnerOverlay =
     (state.winners?.length ?? 0) > 0 &&
@@ -634,6 +669,32 @@ export function PokerTable({
     } finally {
       setBusy(false);
       autoFolding.current = false;
+    }
+  }
+
+  async function tipTheDealer() {
+    if (!mySeat || busy) return;
+    void unlockAudio();
+    playSfx("chip");
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/tip`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: tipAmount }),
+      });
+      const json = await readJson<{ error?: string; tip?: number; state?: PublicTableState }>(
+        res,
+      );
+      if (!res.ok) throw new Error(json.error || "Tip failed");
+      if (json.state) setState(json.state);
+      playSfx("win");
+      setHint(`Thanks! Dealer tip +${json.tip ?? tipAmount}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Tip failed");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -831,6 +892,19 @@ export function PokerTable({
   const showPot = !showWinner && livePot > 0;
   const connLevel = connectionLevel(online, connFails, latencyMs);
 
+  const myHoleCards = useMemo(() => {
+    if (!mySeat || !holeCardsVisible) return [] as string[];
+    const cards = mySeat.holeCards as string[];
+    if (!cards?.length) return [];
+    if (cards.every((c) => c === "hidden")) return [];
+    return cards.filter((c) => c !== "hidden");
+  }, [mySeat, holeCardsVisible]);
+
+  const handHints = useMemo(
+    () => (myHoleCards.length >= 2 ? getHandHints(myHoleCards, state.community) : null),
+    [myHoleCards, state.community],
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -868,28 +942,72 @@ export function PokerTable({
         </div>
       )}
 
-      <div className="table-stage relative mx-auto w-full max-w-5xl">
+      <div className="table-stage relative mx-auto w-full max-w-6xl">
         <ConnectionMeter
           level={connLevel}
           latencyMs={latencyMs}
           className="conn-meter-on-table"
         />
+        <div className="table-stage-row">
         <div className="table-felt-wrap relative mx-auto aspect-[16/10] w-full max-w-4xl">
-          <div className="felt-table absolute inset-0 overflow-hidden rounded-[999px]">
-        {/* Center: dealer + brand + community cards + pot */}
-        <div className="pointer-events-none absolute left-1/2 top-[54%] z-10 flex w-[min(90%,400px)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2">
-          <div className={cn("dealer-figure", dealerDealing && "is-dealing")}>
-            <div className="dealer-avatar" title="Dealer">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/dealer-lady.png"
-                alt="Dealer"
-                className="dealer-lady-img"
-                draggable={false}
-              />
-              {dealerDealing && <span className="dealer-deck" aria-hidden />}
+          <div ref={feltRef} className="felt-table absolute inset-0 overflow-hidden rounded-[999px]">
+        {/* Center stack: lady + brand + board share one axis; pot/tip float beside lady */}
+        <div className="felt-center-stack">
+          <div className="dealer-anchor pointer-events-auto">
+            <div ref={potAnchorRef} className="pot-fly-target" aria-hidden />
+            {(showPot || livePot > 0) && (
+              <div
+                key={`pot-${livePot}-${state.handNumber}`}
+                className="pot-beside animate-pot"
+              >
+                <div className="chip-stack chip-stack-sm">
+                  {Array.from({
+                    length: Math.min(4, Math.max(1, Math.ceil(livePot / 25))),
+                  }).map((_, i) => (
+                    <div
+                      key={i}
+                      className={cn("poker-chip", `is-${chipTone(livePot)}`)}
+                      style={{ marginLeft: i % 2 === 0 ? 0 : 4 }}
+                    >
+                      <span>{livePot >= 100 ? "100" : livePot >= 25 ? "25" : "10"}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="pot-beside-meta">
+                  <span className="pot-beside-label">Pot</span>
+                  <span className="pot-beside-value">{livePot.toLocaleString()}</span>
+                </div>
+              </div>
+            )}
+
+            <div className={cn("dealer-figure", dealerDealing && "is-dealing")}>
+              <div className="dealer-avatar" title="Dealer">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/dealer-lady.png"
+                  alt="Dealer"
+                  className="dealer-lady-img"
+                  draggable={false}
+                />
+                {dealerDealing && <span className="dealer-deck" aria-hidden />}
+              </div>
+              {dealerDealing && <div className="dealer-status">Dealing…</div>}
             </div>
-            {dealerDealing && <div className="dealer-status">Dealing…</div>}
+
+            <button
+              type="button"
+              className="tip-dealer-btn"
+              disabled={busy || !mySeat || (mySeat.stack ?? 0) < tipAmount}
+              title={
+                mySeat
+                  ? `Tip the dealer ${tipAmount} from your stack`
+                  : "Sit at the table to tip the dealer"
+              }
+              onClick={() => void tipTheDealer()}
+            >
+              <span className="tip-dealer-eyebrow">Tip the dealer</span>
+              <span className="tip-dealer-amount">+{tipAmount}</span>
+            </button>
           </div>
 
           <div className="felt-brand-center">
@@ -913,28 +1031,6 @@ export function PokerTable({
               );
             })}
           </div>
-
-          {showPot && (
-            <div
-              key={`pot-${livePot}-${state.handNumber}`}
-              className="pointer-events-auto pot-classic animate-pot"
-            >
-              <div className="chip-stack">
-                {Array.from({ length: Math.min(5, Math.max(2, Math.ceil(livePot / 20))) }).map(
-                  (_, i) => (
-                    <div
-                      key={i}
-                      className={cn("poker-chip", `is-${chipTone(livePot)}`)}
-                      style={{ marginLeft: i % 2 === 0 ? 0 : 6 }}
-                    >
-                      <span>{livePot >= 100 ? "100" : livePot >= 25 ? "25" : "10"}</span>
-                    </div>
-                  ),
-                )}
-              </div>
-              <div className="pot-value">{livePot.toLocaleString()}</div>
-            </div>
-          )}
         </div>
 
         {dealThrows.map((fx) => (
@@ -1015,8 +1111,8 @@ export function PokerTable({
               {
                 "--from-x": fx.fromX,
                 "--from-y": fx.fromY,
-                "--to-x": POT_X,
-                "--to-y": POT_Y,
+                "--to-x": potTarget.x,
+                "--to-y": potTarget.y,
                 animationDelay: `${fx.delay}ms`,
               } as React.CSSProperties
             }
@@ -1175,6 +1271,33 @@ export function PokerTable({
         })}
         </div>
       </div>
+
+        {myHoleCards.length >= 2 && handHints && (
+          <aside className="hero-hand-panel" aria-label="Your hand">
+            <div className="hero-hand-cards">
+              {myHoleCards.map((card, i) => (
+                <PlayingCard
+                  key={`hero-${state.handNumber}-${i}-${card}`}
+                  card={card}
+                  delayMs={i * 80}
+                  className="hero-hole-card"
+                />
+              ))}
+            </div>
+            <div className="hero-hand-copy">
+              <div className="hero-hand-eyebrow">Your hand</div>
+              <div className="hero-hand-current">{handHints.current}</div>
+              {handHints.possibles.length > 0 && (
+                <ul className="hero-hand-possibles">
+                  {handHints.possibles.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </aside>
+        )}
+        </div>
       </div>
 
       {(attentionOpen || attentionLeaving || timeoutNotice) && (
