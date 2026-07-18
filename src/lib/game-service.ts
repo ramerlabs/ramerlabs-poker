@@ -6,6 +6,7 @@ import {
   continueCommunityDealIfReady,
   continueRunoutIfReady,
   forceFold,
+  releaseStreetHoldIfReady,
   startHand,
   toPublicState,
 } from "@/lib/poker/engine";
@@ -60,7 +61,11 @@ export async function loadTableState(roomId: string): Promise<PokerTableState | 
   return state;
 }
 
-export async function saveTableState(roomId: string, state: PokerTableState) {
+export async function saveTableState(
+  roomId: string,
+  state: PokerTableState,
+  opts?: { syncStacks?: boolean },
+) {
   const saved = await prisma.gameState.upsert({
     where: { roomId },
     create: {
@@ -74,7 +79,13 @@ export async function saveTableState(roomId: string, state: PokerTableState) {
     },
   });
 
-  await syncStacksToDb(roomId, state);
+  // Stack sync is expensive (one DB write per seat) — only between hands by default
+  const betweenHands =
+    state.street === "waiting" || state.street === "complete" || state.street === "showdown";
+  if (opts?.syncStacks === true || (opts?.syncStacks !== false && betweenHands)) {
+    await syncStacksToDb(roomId, state);
+  }
+
   await publishRoomEvent(roomId, "state", {
     version: saved.version,
     updatedAt: saved.updatedAt.toISOString(),
@@ -169,10 +180,13 @@ export async function rebuildSeatsFromDb(roomId: string, state: PokerTableState)
   });
 
   const existingByUser = new Map(state.seats.map((s) => [s.userId, s]));
+  const betweenHands = state.street === "waiting" || state.street === "complete";
+
   state.seats = players.map((p) => {
     const prev = existingByUser.get(p.userId);
-    if (prev && state.street !== "waiting" && state.street !== "complete") {
-      return prev;
+    if (prev && !betweenHands) {
+      // Keep live hand fields, but always honor roster seat index
+      return { ...prev, seat: p.seat, stack: prev.stack };
     }
     return {
       userId: p.userId,
@@ -187,23 +201,50 @@ export async function rebuildSeatsFromDb(roomId: string, state: PokerTableState)
       lastAction: null,
     };
   });
+
+  // Mid-hand: also keep any state seats still playing that were dropped from roster
+  // (shouldn't happen for humans; bots may briefly desync — drop orphans not in roster)
+  if (!betweenHands) {
+    const rosterIds = new Set(players.map((p) => p.userId));
+    // Prefer roster as source of truth for who is at the table
+    state.seats = state.seats.filter((s) => rosterIds.has(s.userId));
+  }
+
   return state;
 }
 
-/** Auto-fold human seats that exceed the turn clock. */
+/** Ensure RoomPlayer rows are present in live state (fixes “seated but invisible”). */
+export async function syncRosterToLiveState(roomId: string): Promise<PokerTableState> {
+  let state = await ensureGameState(roomId);
+  const before = state.seats.map((s) => `${s.userId}:${s.seat}`).join("|");
+  state = await rebuildSeatsFromDb(roomId, structuredClone(state) as PokerTableState);
+  const after = state.seats.map((s) => `${s.userId}:${s.seat}`).join("|");
+  if (before !== after) {
+    await saveTableState(roomId, state);
+  }
+  return state;
+}
+
+/** Auto-fold human seats that exceed the turn clock (+ short grace for latency). */
 export async function enforceTurnTimeout(roomId: string): Promise<PokerTableState> {
   let state = await ensureGameState(roomId);
+  if (releaseStreetHoldIfReady(state)) {
+    await saveTableState(roomId, state);
+    state = await ensureGameState(roomId);
+  }
   let guard = 0;
 
   while (
     guard < 8 &&
     state.actionSeat != null &&
     state.turnStartedAt != null &&
+    !(state.streetHoldUntil && Date.now() < state.streetHoldUntil) &&
     state.street !== "waiting" &&
     state.street !== "complete" &&
     state.street !== "showdown"
   ) {
-    const limitMs = (state.turnSeconds || DEFAULT_TURN_SECONDS) * 1000;
+    // Extra grace so a slow Call POST isn't beaten by a poll that auto-folds
+    const limitMs = (state.turnSeconds || DEFAULT_TURN_SECONDS) * 1000 + 2500;
     if (Date.now() - state.turnStartedAt < limitMs) break;
 
     const actor = state.seats.find((s) => s.seat === state.actionSeat);
@@ -260,7 +301,11 @@ async function advanceOneBotIfReady(state: PokerTableState): Promise<{
     state.turnStartedAt ?? 0,
     state.streetHoldUntil ?? 0,
   );
-  if (Date.now() < elapsedStart + botThinkMs(state, actor.userId)) {
+  const thinkMs = botThinkMs(state, actor.userId);
+  const turnLimitMs = (state.turnSeconds || DEFAULT_TURN_SECONDS) * 1000;
+  // Never leave a bot frozen past the visible turn clock
+  const readyAt = elapsedStart + Math.min(thinkMs, turnLimitMs);
+  if (Date.now() < readyAt) {
     return { state, acted: false };
   }
 
@@ -286,14 +331,54 @@ function liveSeatCount(state: PokerTableState) {
   return state.seats.filter((s) => !s.sittingOut && s.stack > 0).length;
 }
 
+/** Serialize / debounce ticks so Ably+poll refreshes cannot pile up (was causing 30–70s “latency”). */
+const tickInflight = new Map<string, Promise<PokerTableState>>();
+const lastTickAt = new Map<string, number>();
+const lastRosterSyncAt = new Map<string, number>();
+
+export async function tickRoomDebounced(roomId: string, minIntervalMs = 350): Promise<PokerTableState> {
+  const existing = tickInflight.get(roomId);
+  if (existing) return existing;
+
+  const last = lastTickAt.get(roomId) ?? 0;
+  if (Date.now() - last < minIntervalMs) {
+    return ensureGameState(roomId);
+  }
+
+  const run = tickRoom(roomId)
+    .then((state) => {
+      lastTickAt.set(roomId, Date.now());
+      return state;
+    })
+    .finally(() => {
+      if (tickInflight.get(roomId) === run) tickInflight.delete(roomId);
+    });
+
+  tickInflight.set(roomId, run);
+  return run;
+}
+
 /**
  * Keep tables automatic: one bot action per tick (with think time), then
  * auto-deal the next hand when 2+ players are seated.
  */
 export async function tickRoom(roomId: string): Promise<PokerTableState> {
-  let state = await enforceTurnTimeout(roomId);
+  // Roster sync is expensive — only every few seconds, not every poll
+  const rosterAge = Date.now() - (lastRosterSyncAt.get(roomId) ?? 0);
+  let state =
+    rosterAge > 4000
+      ? await syncRosterToLiveState(roomId)
+      : await ensureGameState(roomId);
+  if (rosterAge > 4000) lastRosterSyncAt.set(roomId, Date.now());
 
-  // Staggered flop cards (3rd board card dealt one-by-one), then turn/river runout
+  state = await enforceTurnTimeout(roomId);
+
+  if (releaseStreetHoldIfReady(state)) {
+    await saveTableState(roomId, state);
+    state = await ensureGameState(roomId);
+  }
+
+  // Staggered flop cards (legacy), then turn/river runout
   {
     const communityStep = continueCommunityDealIfReady(state);
     if (communityStep) {
@@ -318,9 +403,11 @@ export async function tickRoom(roomId: string): Promise<PokerTableState> {
     }
   }
 
-  const prev = state;
-  const result = await advanceOneBotIfReady(state);
-  if (result.acted) {
+  // Catch up overdue bots in one tick so the table can't freeze at timer 0
+  for (let i = 0; i < 4; i += 1) {
+    const prev = state;
+    const result = await advanceOneBotIfReady(state);
+    if (!result.acted) break;
     state = result.state;
     await saveTableState(roomId, state);
     await recordRakeIfNeeded(roomId, prev, state);
@@ -421,14 +508,34 @@ export async function performAction(
   action: PlayerAction,
   amount?: number,
 ) {
-  await enforceTurnTimeout(roomId);
-  const prev = await ensureGameState(roomId);
-  let next = applyAction(prev, userId, action, amount ?? 0);
+  let prev = await ensureGameState(roomId);
+  if (releaseStreetHoldIfReady(prev)) {
+    await saveTableState(roomId, prev);
+    prev = await ensureGameState(roomId);
+  }
+
+  const actor = prev.seats.find((s) => s.seat === prev.actionSeat);
+  const isCurrentActor = actor?.userId === userId;
+
+  // If this player is acting now, don't fold them first — accept Call/Fold with latency grace
+  if (!isCurrentActor) {
+    prev = await enforceTurnTimeout(roomId);
+  } else if (prev.turnStartedAt != null) {
+    const limitMs = (prev.turnSeconds || DEFAULT_TURN_SECONDS) * 1000 + 2500;
+    if (Date.now() - prev.turnStartedAt >= limitMs) {
+      prev = await enforceTurnTimeout(roomId);
+    }
+  }
+
+  const next = applyAction(prev, userId, action, amount ?? 0);
   await saveTableState(roomId, next);
   await recordRakeIfNeeded(roomId, prev, next);
   await afterHandRoster(roomId, prev, next);
-  // Bots act on later ticks with human-like delays
-  return (await ensureGameState(roomId)) ?? next;
+
+  // Advance bots in the background — don't make the player wait on bot think / DB work
+  void tickRoomDebounced(roomId, 0).catch(() => {});
+
+  return next;
 }
 
 /** Fold a disconnected human mid-hand (works even off-turn). */
@@ -438,7 +545,7 @@ export async function forceFoldPlayer(roomId: string, userId: string) {
   await saveTableState(roomId, next);
   await recordRakeIfNeeded(roomId, prev, next);
   await afterHandRoster(roomId, prev, next);
-  return (await ensureGameState(roomId)) ?? next;
+  return next;
 }
 
 export async function tipDealer(roomId: string, userId: string, amount?: number) {
@@ -480,9 +587,21 @@ export async function tipDealer(roomId: string, userId: string, amount?: number)
   return { state: next, tip };
 }
 
-export async function getPublicGameState(roomId: string, viewerId?: string) {
-  const state = await tickRoom(roomId);
-  const row = await prisma.gameState.findUnique({ where: { roomId } });
+export async function getPublicGameState(
+  roomId: string,
+  viewerId?: string,
+  options?: { tick?: boolean },
+) {
+  // Light polls skip tick — prevents Ably echo + interval from stacking 30–70s waits
+  const state =
+    options?.tick === false
+      ? await ensureGameState(roomId)
+      : await tickRoomDebounced(roomId);
+
+  const row = await prisma.gameState.findUnique({
+    where: { roomId },
+    select: { version: true },
+  });
   return {
     version: row?.version ?? 1,
     state: toPublicState(state, viewerId),

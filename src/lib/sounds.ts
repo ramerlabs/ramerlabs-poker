@@ -131,14 +131,17 @@ function playTone(name: Sfx) {
       tone(640, 0.05, "square", 0.16);
       break;
     case "alert":
-      tone(660, 0.12, "triangle", 0.24);
-      tone(880, 0.14, "triangle", 0.26, 0.12);
-      tone(1175, 0.2, "triangle", 0.28, 0.26);
-      tone(880, 0.1, "sine", 0.16, 0.42);
+      // Clear “your turn” chime — louder and more noticeable
+      tone(523.25, 0.1, "triangle", 0.28);
+      tone(659.25, 0.12, "triangle", 0.3, 0.1);
+      tone(783.99, 0.16, "triangle", 0.32, 0.22);
+      tone(1046.5, 0.22, "sine", 0.34, 0.36);
+      tone(880, 0.14, "sine", 0.22, 0.55);
       break;
     case "timeout":
-      tone(300, 0.18, "sawtooth", 0.22);
-      tone(180, 0.26, "sine", 0.18, 0.1);
+      tone(260, 0.2, "sawtooth", 0.26);
+      tone(180, 0.28, "sine", 0.22, 0.12);
+      tone(140, 0.3, "sine", 0.16, 0.28);
       break;
     default:
       break;

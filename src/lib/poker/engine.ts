@@ -15,8 +15,31 @@ function markTurnClock(state: PokerTableState, seat: number | null) {
     state.turnStartedAt = null;
     return;
   }
-  state.turnStartedAt = Date.now();
+  // Don't burn the player's clock while cards are still being dealt
+  if (state.streetHoldUntil && Date.now() < state.streetHoldUntil) {
+    state.turnStartedAt = null;
+  } else {
+    state.turnStartedAt = Date.now();
+  }
   if (!state.turnSeconds) state.turnSeconds = DEFAULT_TURN_SECONDS;
+}
+
+/** Clear expired deal/reveal holds and start the turn clock when ready. */
+export function releaseStreetHoldIfReady(state: PokerTableState): boolean {
+  let changed = false;
+  if (state.streetHoldUntil != null && Date.now() >= state.streetHoldUntil) {
+    state.streetHoldUntil = null;
+    changed = true;
+  }
+  if (
+    state.actionSeat != null &&
+    state.turnStartedAt == null &&
+    (state.streetHoldUntil == null || Date.now() >= state.streetHoldUntil)
+  ) {
+    state.turnStartedAt = Date.now();
+    changed = true;
+  }
+  return changed;
 }
 
 function activeSeats(state: PokerTableState): SeatState[] {
@@ -365,8 +388,8 @@ export function startHand(state: PokerTableState): PokerTableState {
   postBlind(bb, next.bigBlind);
   next.currentBet = Math.max(sb.bet, bb.bet);
 
-  // Hold betting until dealer has dropped 2 hole cards to every seat
-  const dealMs = 2200 + ordered.length * 550;
+  // Hold betting until hole cards finish animating (short pause)
+  const dealMs = Math.min(3200, 900 + ordered.length * 280);
   next.streetHoldUntil = Date.now() + dealMs;
 
   markTurnClock(
@@ -388,6 +411,8 @@ export function applyAction(
   amount = 0,
 ): PokerTableState {
   const next = structuredClone(state) as PokerTableState;
+  releaseStreetHoldIfReady(next);
+
   if (next.street === "waiting" || next.street === "complete" || next.street === "showdown") {
     throw new Error("Hand is not in a betting round");
   }
@@ -500,7 +525,10 @@ export function forceFold(state: PokerTableState, userId: string): PokerTableSta
   if (!seat || seat.folded) return state;
 
   if (state.actionSeat === seat.seat) {
-    return applyAction(state, userId, "fold");
+    const next = structuredClone(state) as PokerTableState;
+    next.streetHoldUntil = null;
+    if (next.turnStartedAt == null) next.turnStartedAt = Date.now();
+    return applyAction(next, userId, "fold");
   }
 
   const next = structuredClone(state) as PokerTableState;

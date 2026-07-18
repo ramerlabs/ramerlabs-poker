@@ -235,7 +235,10 @@ export async function claimSeat(roomId: string, userId: string, seat: number) {
   if (!room || room.status === "CLOSED") throw new Error("Room not found");
   if (seat < 0 || seat >= room.maxPlayers) throw new Error("Invalid seat");
   if (room.players.some((p) => p.userId === userId)) {
-    throw new Error("You are already seated");
+    const mine = room.players.find((p) => p.userId === userId)!;
+    throw new Error(
+      `You are already at seat ${mine.seat + 1}. Click Leave table if you want to move.`,
+    );
   }
 
   const occupied = room.players.find((p) => p.seat === seat);
@@ -522,7 +525,10 @@ export async function joinWaitlist(
   });
   if (!room || room.status === "CLOSED") throw new Error("Room not found");
   if (room.players.some((p) => p.userId === userId)) {
-    throw new Error("You are already seated");
+    const mine = room.players.find((p) => p.userId === userId)!;
+    throw new Error(
+      `You are already at seat ${mine.seat + 1}. Click Leave table if you want to move.`,
+    );
   }
 
   await prisma.roomWaitlist.upsert({

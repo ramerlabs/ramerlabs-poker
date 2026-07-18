@@ -38,7 +38,9 @@ type RoomPayload = {
     }[];
   };
   me: {
+    userId: string;
     seated: boolean;
+    seat: number | null;
     waiting: boolean;
     waitPosition: number | null;
     preferredSeat: number | null;
@@ -235,14 +237,14 @@ export default function RoomDetailPage() {
   const canStart = seated;
 
   return (
-    <div className="space-y-5 animate-fade-up">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="space-y-3 animate-fade-up">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-4xl font-semibold text-[var(--gold-soft)]">{data.room.name}</h1>
+            <h1 className="text-2xl font-semibold text-[var(--gold-soft)] md:text-3xl">{data.room.name}</h1>
             <Badge tone={data.room.type === "FREE" ? "green" : "gold"}>{data.room.type}</Badge>
           </div>
-          <p className="mt-2 text-sm text-[var(--muted)]">
+          <p className="mt-1 text-xs text-[var(--muted)] md:text-sm">
             Blinds {data.room.smallBlind}/{data.room.bigBlind} · Buy-in {data.room.buyIn}{" "}
             {data.room.currency} · {data.room.players.length}/{data.room.maxPlayers} seated
             {data.room.waitlist.length > 0 ? ` · ${data.room.waitlist.length} waiting` : ""}
@@ -291,6 +293,17 @@ export default function RoomDetailPage() {
         </div>
       </div>
 
+      {seated && data.me.seat != null && (
+        <div className="rounded-xl border border-[rgba(62,207,142,0.4)] bg-[rgba(62,207,142,0.1)] px-3 py-2 text-sm text-[#c8f0dc]">
+          You are seated at seat {data.me.seat + 1}
+          {(() => {
+            const n = data.room.players.find((p) => p.userId === data.me.userId)?.user.name;
+            return n ? ` as ${n}` : "";
+          })()}
+          . Look for the green <strong>You</strong> badge on the table.
+        </div>
+      )}
+
       {error && (
         <div className="rounded-xl border border-[rgba(179,58,74,0.4)] bg-[rgba(179,58,74,0.12)] px-3 py-2 text-sm">
           {error}
@@ -302,7 +315,7 @@ export default function RoomDetailPage() {
         </div>
       )}
 
-      <Panel className="p-4 md:p-6">
+      <Panel className="p-2 md:p-3">
         <PokerTable
           roomId={data.room.id}
           tableName={data.room.name}
@@ -312,6 +325,8 @@ export default function RoomDetailPage() {
           maxPlayers={data.room.maxPlayers}
           canStart={canStart}
           canSit={!seated}
+          viewerUserId={data.me.userId}
+          viewerSeat={data.me.seat}
           preferredSeat={data.me.preferredSeat}
           inviteCode={inviteCode || undefined}
           onPlayersChanged={() => void load()}

@@ -26,8 +26,13 @@ export async function GET(req: Request, { params }: Params) {
   if ("error" in authResult && authResult.error) return authResult.error;
 
   const invite = new URL(req.url).searchParams.get("invite");
+  const light = new URL(req.url).searchParams.get("light") === "1";
+  // Only Ably echo should skip ticks — light polls still advance bots/timeouts
+  const skipTick = new URL(req.url).searchParams.get("tick") === "0";
 
-  await purgeStalePlayers(id);
+  if (!light) {
+    await purgeStalePlayers(id);
+  }
   await touchPresence(id, authResult.userId);
 
   const room = await prisma.room.findUnique({
@@ -37,7 +42,8 @@ export async function GET(req: Request, { params }: Params) {
 
   if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
 
-  const seated = room.players.some((p) => p.userId === authResult.userId);
+  const myPlayer = room.players.find((p) => p.userId === authResult.userId);
+  const seated = Boolean(myPlayer);
   const waiting = room.waitlist.some((w) => w.userId === authResult.userId);
   const isCreator = room.creatorId === authResult.userId;
   const validInvite = Boolean(invite && invite === room.inviteCode);
@@ -68,45 +74,58 @@ export async function GET(req: Request, { params }: Params) {
     }
   }
 
-  const game = await getPublicGameState(id, authResult.userId);
+  const game = await getPublicGameState(id, authResult.userId, { tick: !skipTick });
   const waitPosition =
     room.waitlist.findIndex((w) => w.userId === authResult.userId) + 1 || null;
   const isAdmin = authResult.role === "ADMIN";
 
   return NextResponse.json({
-    room: {
-      ...room,
-      buyIn: toNumber(room.buyIn),
-      smallBlind: toNumber(room.smallBlind),
-      bigBlind: toNumber(room.bigBlind),
-      // Hide bot roster details from regular players
-      targetBots: isAdmin ? room.targetBots : undefined,
-      players: room.players.map((p) => ({
-        ...p,
-        stack: toNumber(p.stack),
-        ...(isAdmin ? { isBot: isBotUserId(p.userId) } : {}),
-      })),
-      waitlist: room.waitlist.map((w) => ({
-        userId: w.userId,
-        name: w.user.name ?? w.user.email,
-        preferredSeat: w.preferredSeat,
-        createdAt: w.createdAt,
-      })),
-      ...(isAdmin
-        ? {
-            botCount: room.players.filter((p) => isBotUserId(p.userId)).length,
-            humanCount: room.players.filter((p) => !isBotUserId(p.userId)).length,
-          }
-        : {}),
-    },
-    me: {
-      seated,
-      waiting,
-      waitPosition: waiting ? waitPosition : null,
-      preferredSeat: waiting
-        ? (room.waitlist.find((w) => w.userId === authResult.userId)?.preferredSeat ?? null)
-        : null,
-    },
+    room: light
+      ? {
+          id: room.id,
+          players: room.players.map((p) => ({
+            ...p,
+            stack: toNumber(p.stack),
+            ...(isAdmin ? { isBot: isBotUserId(p.userId) } : {}),
+          })),
+        }
+      : {
+          ...room,
+          buyIn: toNumber(room.buyIn),
+          smallBlind: toNumber(room.smallBlind),
+          bigBlind: toNumber(room.bigBlind),
+          // Hide bot roster details from regular players
+          targetBots: isAdmin ? room.targetBots : undefined,
+          players: room.players.map((p) => ({
+            ...p,
+            stack: toNumber(p.stack),
+            ...(isAdmin ? { isBot: isBotUserId(p.userId) } : {}),
+          })),
+          waitlist: room.waitlist.map((w) => ({
+            userId: w.userId,
+            name: w.user.name ?? w.user.email,
+            preferredSeat: w.preferredSeat,
+            createdAt: w.createdAt,
+          })),
+          ...(isAdmin
+            ? {
+                botCount: room.players.filter((p) => isBotUserId(p.userId)).length,
+                humanCount: room.players.filter((p) => !isBotUserId(p.userId)).length,
+              }
+            : {}),
+        },
+    me: light
+      ? undefined
+      : {
+          userId: authResult.userId,
+          seated,
+          seat: myPlayer?.seat ?? null,
+          waiting,
+          waitPosition: waiting ? waitPosition : null,
+          preferredSeat: waiting
+            ? (room.waitlist.find((w) => w.userId === authResult.userId)?.preferredSeat ?? null)
+            : null,
+        },
     game,
   });
 }
