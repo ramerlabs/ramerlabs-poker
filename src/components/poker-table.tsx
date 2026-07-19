@@ -909,6 +909,18 @@ export function PokerTable({
     return () => clearInterval(id);
   }, [secondsLeft, waiting, state.actionSeat, refresh]);
 
+  // Never leave the action bar locked if a request hangs without aborting.
+  useEffect(() => {
+    if (!busy) return;
+    const id = window.setTimeout(() => {
+      setBusy(false);
+      actingRef.current = false;
+      autoFolding.current = false;
+      setError((prev) => prev || "Request timed out — try again");
+    }, 12_000);
+    return () => window.clearTimeout(id);
+  }, [busy]);
+
   // Force server ticks when the hand is complete (winner shown) but next hand
   // hasn't dealt yet — the stuck-timer effect above doesn't fire when waiting.
   useEffect(() => {
@@ -1005,11 +1017,14 @@ export function PokerTable({
     setError(null);
     setHint(null);
     if (!fromSystem) voluntaryActRef.current = true;
+    const ac = new AbortController();
+    const kill = window.setTimeout(() => ac.abort(), 10_000);
     try {
       const res = await fetch(`/api/rooms/${roomId}/action`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, amount }),
+        signal: ac.signal,
       });
       const json = await readJson<{ error?: string; state?: PublicTableState }>(res);
       if (!res.ok) {
@@ -1017,17 +1032,24 @@ export function PokerTable({
         if (!fromSystem && /still dealing/i.test(msg)) {
           actingRef.current = false;
           await new Promise((r) => setTimeout(r, 400));
-          const retry = await fetch(`/api/rooms/${roomId}/action`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action, amount }),
-          });
-          const retryJson = await readJson<{ error?: string; state?: PublicTableState }>(retry);
-          if (!retry.ok) throw new Error(retryJson.error || msg);
-          if (retryJson.state) setState(retryJson.state);
-          dismissAttention();
-          setAttentionAcked(false);
-          return;
+          const retryAc = new AbortController();
+          const retryKill = window.setTimeout(() => retryAc.abort(), 10_000);
+          try {
+            const retry = await fetch(`/api/rooms/${roomId}/action`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action, amount }),
+              signal: retryAc.signal,
+            });
+            const retryJson = await readJson<{ error?: string; state?: PublicTableState }>(retry);
+            if (!retry.ok) throw new Error(retryJson.error || msg);
+            if (retryJson.state) setState(retryJson.state);
+            dismissAttention();
+            setAttentionAcked(false);
+            return;
+          } finally {
+            window.clearTimeout(retryKill);
+          }
         }
         if (!fromSystem) voluntaryActRef.current = false;
         throw new Error(msg);
@@ -1053,9 +1075,15 @@ export function PokerTable({
           window.setTimeout(() => setAutoFoldNonce((n) => n + 1), 700);
         }
       } else {
-        setError(e instanceof Error ? e.message : "Action failed");
+        const aborted =
+          e instanceof DOMException
+            ? e.name === "AbortError"
+            : e instanceof Error && /abort/i.test(e.message);
+        setError(aborted ? "Action timed out — try again" : e instanceof Error ? e.message : "Action failed");
+        if (!fromSystem) voluntaryActRef.current = false;
       }
     } finally {
+      window.clearTimeout(kill);
       setBusy(false);
       autoFolding.current = false;
       actingRef.current = false;
