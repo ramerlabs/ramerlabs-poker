@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
 import { Toast, type ToastTone } from "@/components/toast";
@@ -34,10 +35,30 @@ type TransferRow = {
   toUser: { id: string; name: string | null; email: string };
 };
 
+type ClubRoom = {
+  id: string;
+  name: string;
+  type: "FREE" | "REAL";
+  currency: string;
+  buyIn: number;
+  smallBlind: number;
+  bigBlind: number;
+  maxPlayers: number;
+  targetBots: number;
+  botSkillPercent: number;
+  chatEnabled: boolean;
+  isPrivate: boolean;
+  inviteCode: string | null;
+  status: string;
+  playerCount: number;
+};
+
 export default function ClubPage() {
   const [club, setClub] = useState<ClubSummary | null>(null);
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [transfers, setTransfers] = useState<TransferRow[]>([]);
+  const [rooms, setRooms] = useState<ClubRoom[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -49,17 +70,20 @@ export default function ClubPage() {
     setLoading(true);
     setError(null);
     try {
-      const [mineRes, clientsRes] = await Promise.all([
+      const [mineRes, clientsRes, roomsRes] = await Promise.all([
         fetch("/api/club/mine"),
         fetch("/api/club/clients"),
+        fetch("/api/club/rooms"),
       ]);
       const mineJson = await mineRes.json();
       const clientsJson = await clientsRes.json();
+      const roomsJson = await roomsRes.json().catch(() => ({}));
       if (!mineRes.ok) {
         setError(mineJson.error || "Club owner access required");
         setClub(null);
         setClients([]);
         setTransfers([]);
+        setRooms([]);
         return;
       }
       setClub(mineJson.club);
@@ -70,6 +94,7 @@ export default function ClubPage() {
           setAssignUserId(clientsJson.clients[0].user.id);
         }
       }
+      if (roomsRes.ok) setRooms(roomsJson.rooms ?? []);
     } catch {
       setError("Could not load club");
     } finally {
@@ -129,9 +154,75 @@ export default function ClubPage() {
     }
     setToast({ text: json.message, tone: "success" });
     e.currentTarget.reset();
-    if (assignUserId) {
-      // keep selected client
+    await load();
+  }
+
+  async function saveRoom(e: FormEvent<HTMLFormElement>, roomId: string) {
+    e.preventDefault();
+    setBusy(true);
+    const form = new FormData(e.currentTarget);
+    const res = await fetch("/api/club/rooms", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: roomId,
+        name: String(form.get("name")),
+        buyIn: Number(form.get("buyIn")),
+        smallBlind: Number(form.get("smallBlind")),
+        bigBlind: Number(form.get("bigBlind")),
+        maxPlayers: Number(form.get("maxPlayers")),
+        targetBots: Number(form.get("targetBots")),
+        botSkillPercent: Number(form.get("botSkillPercent")),
+        chatEnabled: form.get("chatEnabled") === "on",
+        isPrivate: form.get("isPrivate") === "on",
+      }),
+    });
+    const json = await res.json();
+    setBusy(false);
+    if (!res.ok) {
+      setToast({ text: json.error || "Could not update table", tone: "error" });
+      return;
     }
+    setToast({ text: json.message || "Table updated", tone: "success" });
+    setEditingId(null);
+    await load();
+  }
+
+  async function closeRoom(id: string, name: string) {
+    if (!window.confirm(`Close table “${name}”? Players will no longer be able to join.`)) {
+      return;
+    }
+    setBusy(true);
+    const res = await fetch("/api/club/rooms", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status: "CLOSED" }),
+    });
+    const json = await res.json();
+    setBusy(false);
+    if (!res.ok) {
+      setToast({ text: json.error || "Could not close table", tone: "error" });
+      return;
+    }
+    setToast({ text: `Table “${name}” closed`, tone: "success" });
+    setEditingId(null);
+    await load();
+  }
+
+  async function reopenRoom(id: string) {
+    setBusy(true);
+    const res = await fetch("/api/club/rooms", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status: "WAITING" }),
+    });
+    const json = await res.json();
+    setBusy(false);
+    if (!res.ok) {
+      setToast({ text: json.error || "Could not reopen table", tone: "error" });
+      return;
+    }
+    setToast({ text: "Table reopened", tone: "success" });
     await load();
   }
 
@@ -256,6 +347,190 @@ export default function ClubPage() {
           )}
         </Panel>
       </div>
+
+      <Panel className="p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">Your tables</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Tables created for this club. Edit settings or close a table when you are done.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge tone="gold">{rooms.length}</Badge>
+            <Link href="/rooms">
+              <Button variant="ghost">Create table</Button>
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {rooms.length === 0 && (
+            <p className="text-sm text-[var(--muted)]">
+              No tables yet — create one from Rooms while signed in as the club owner.
+            </p>
+          )}
+          {rooms.map((room) => (
+            <div
+              key={room.id}
+              className="rounded-xl border border-white/5 bg-black/20 px-3 py-3"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold">{room.name}</span>
+                    <Badge tone={room.type === "FREE" ? "green" : "gold"}>{room.type}</Badge>
+                    <Badge tone={room.status === "CLOSED" ? "muted" : "green"}>
+                      {room.status}
+                    </Badge>
+                    {room.isPrivate && <Badge tone="muted">Private</Badge>}
+                  </div>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    {room.smallBlind}/{room.bigBlind} · Buy-in {room.buyIn} {room.currency} ·{" "}
+                    {room.playerCount}/{room.maxPlayers} seated · bots {room.targetBots} · chat{" "}
+                    {room.chatEnabled ? "ON" : "OFF"}
+                    {room.inviteCode ? ` · invite ${room.inviteCode}` : ""}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Link href={`/rooms/${room.id}${room.inviteCode ? `?invite=${room.inviteCode}` : ""}`}>
+                    <Button variant="felt">Open</Button>
+                  </Link>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() =>
+                      setEditingId(editingId === room.id ? null : room.id)
+                    }
+                  >
+                    {editingId === room.id ? "Cancel" : "Edit"}
+                  </Button>
+                  {room.status !== "CLOSED" ? (
+                    <Button
+                      type="button"
+                      variant="danger"
+                      disabled={busy}
+                      onClick={() => void closeRoom(room.id, room.name)}
+                    >
+                      Close
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => void reopenRoom(room.id)}
+                    >
+                      Reopen
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {editingId === room.id && (
+                <form
+                  onSubmit={(e) => void saveRoom(e, room.id)}
+                  className="mt-4 grid gap-3 border-t border-white/5 pt-4 md:grid-cols-2 xl:grid-cols-3"
+                >
+                  <div className="md:col-span-2 xl:col-span-3">
+                    <Label>Table name</Label>
+                    <Input name="name" defaultValue={room.name} required maxLength={64} />
+                  </div>
+                  <div>
+                    <Label>Buy-in</Label>
+                    <Input
+                      name="buyIn"
+                      type="number"
+                      step="0.01"
+                      min={0.01}
+                      defaultValue={room.buyIn}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label>Small blind</Label>
+                    <Input
+                      name="smallBlind"
+                      type="number"
+                      step="0.01"
+                      min={0.01}
+                      defaultValue={room.smallBlind}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label>Big blind</Label>
+                    <Input
+                      name="bigBlind"
+                      type="number"
+                      step="0.01"
+                      min={0.01}
+                      defaultValue={room.bigBlind}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label>Max players</Label>
+                    <Input
+                      name="maxPlayers"
+                      type="number"
+                      min={2}
+                      max={9}
+                      defaultValue={room.maxPlayers}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label>Bots to seat</Label>
+                    <Input
+                      name="targetBots"
+                      type="number"
+                      min={0}
+                      max={9}
+                      defaultValue={room.targetBots}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label>Bot accuracy (0–100)</Label>
+                    <Input
+                      name="botSkillPercent"
+                      type="number"
+                      min={0}
+                      max={100}
+                      defaultValue={room.botSkillPercent}
+                      required
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
+                    <input
+                      type="checkbox"
+                      name="chatEnabled"
+                      defaultChecked={room.chatEnabled}
+                      className="accent-[var(--gold)]"
+                    />
+                    Table chat enabled
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
+                    <input
+                      type="checkbox"
+                      name="isPrivate"
+                      defaultChecked={room.isPrivate}
+                      className="accent-[var(--gold)]"
+                    />
+                    Private (invite code)
+                  </label>
+                  <div className="md:col-span-2 xl:col-span-3">
+                    <Button type="submit" disabled={busy}>
+                      {busy ? "Saving…" : "Save table"}
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </div>
+          ))}
+        </div>
+      </Panel>
 
       <Panel className="p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
