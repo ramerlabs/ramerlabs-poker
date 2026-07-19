@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { requireLicense } from "@/lib/license";
 
 const schema = z.object({
   email: z.string().email(),
@@ -11,6 +12,9 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   try {
+    const license = await requireLicense();
+    if ("error" in license) return license.error;
+
     const body = await req.json();
     const parsed = schema.safeParse(body);
     if (!parsed.success) {

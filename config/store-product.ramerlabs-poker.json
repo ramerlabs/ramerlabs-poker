@@ -1,0 +1,42 @@
+{
+  "product_name": "RamerLabs Poker",
+  "slug": "ramerlabs-poker",
+  "woocommerce_product_id": 475,
+  "product_url": "https://ramerlabs.com/product/ramerlabs-poker/",
+  "regular_price": "49",
+  "type": "simple",
+  "virtual": true,
+  "category": {
+    "id": 250,
+    "name": "Script",
+    "slug": "script"
+  },
+  "tags": [
+    "poker",
+    "texas holdem",
+    "multiplayer",
+    "casino",
+    "SaaS",
+    "Next.js",
+    "RamerLabs",
+    "lifetime license",
+    "online poker",
+    "game server",
+    "credits wallet",
+    "private rooms"
+  ],
+  "images": {
+    "media_id": 474,
+    "source_url": "https://ramerlabs.com/wp-content/uploads/2026/07/ramerlabs-poker-table.jpg",
+    "local_source": "docs/poker-table.png"
+  },
+  "description_file": "config/store-description.html",
+  "short_description_file": "config/store-short-description.html",
+  "description_word_count_target": 600,
+  "license_manager": {
+    "product_slug": "ramerlabs-poker",
+    "plan": "Lifetime",
+    "max_activations": 1
+  },
+  "credits": "A product by RamerLabs · https://ramerlabs.com"
+}

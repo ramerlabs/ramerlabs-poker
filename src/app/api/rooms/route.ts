@@ -4,7 +4,7 @@ import { customAlphabet } from "nanoid";
 import { Prisma, RoomType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getPlatformSettings, tickOpenRooms } from "@/lib/game-service";
-import { requireUser } from "@/lib/session";
+import { requireLicenseOptionalUser, requireUser } from "@/lib/session";
 import { toNumber } from "@/lib/utils";
 
 const inviteCode = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 8);
@@ -21,9 +21,10 @@ const createSchema = z.object({
 });
 
 export async function GET() {
-  const authResult = await requireUser();
-  const viewerId = "userId" in authResult ? authResult.userId : null;
-  const isAdmin = "role" in authResult && authResult.role === "ADMIN";
+  const authResult = await requireLicenseOptionalUser();
+  if ("error" in authResult && authResult.error) return authResult.error;
+  const viewerId = authResult.userId;
+  const isAdmin = authResult.role === "ADMIN";
 
   // Keep bot-only tables dealing in the background when lobby is open
   await tickOpenRooms(6);

@@ -282,3 +282,12 @@ model SupportMessage {
   @@index([ticketId, createdAt])
   @@index([authorId])
 }
+
+/// Key/value settings (e.g. site-wide license state for RamerLabs License Manager).
+model AppSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
