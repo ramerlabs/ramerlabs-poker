@@ -9,6 +9,8 @@ type Params = { params: Promise<{ id: string }> };
 const schema = z.object({
   seat: z.number().int().min(0).max(20),
   inviteCode: z.string().optional(),
+  /** Chosen buy-in; must be >= room minimum. Defaults to minimum if omitted. */
+  buyInAmount: z.number().positive().optional(),
 });
 
 export async function POST(req: Request, { params }: Params) {
@@ -43,7 +45,12 @@ export async function POST(req: Request, { params }: Params) {
   }
 
   try {
-    const result = await claimSeat(id, authResult.userId, parsed.data.seat);
+    const result = await claimSeat(
+      id,
+      authResult.userId,
+      parsed.data.seat,
+      parsed.data.buyInAmount,
+    );
     await touchPresence(id, authResult.userId);
     return NextResponse.json(result);
   } catch (error) {

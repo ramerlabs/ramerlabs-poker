@@ -132,6 +132,8 @@ model RoomWaitlist {
   userId        String
   /// Seat the player clicked; filled on the next hand if free.
   preferredSeat Int?
+  /// Chosen buy-in for when the waiter is seated (defaults to room minimum).
+  buyInAmount   Decimal? @db.Decimal(18, 2)
   /// Heartbeat — stale waiters are removed.
   lastSeenAt    DateTime @default(now())
   createdAt     DateTime @default(now())

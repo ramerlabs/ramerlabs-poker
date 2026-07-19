@@ -992,6 +992,76 @@ a {
   padding: 0.28rem 0.42rem;
 }
 
+.buyin-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(4, 8, 14, 0.68);
+  backdrop-filter: blur(5px);
+}
+
+.buyin-modal {
+  width: min(100%, 380px);
+  padding: 1.15rem 1.2rem 1.25rem;
+  border-radius: 18px;
+  background:
+    linear-gradient(165deg, rgba(36, 28, 14, 0.98), rgba(10, 14, 22, 0.97));
+  border: 1px solid rgba(212, 168, 83, 0.45);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+
+.buyin-eyebrow {
+  font-size: 0.68rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.buyin-title {
+  margin-top: 0.25rem;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--gold-soft);
+}
+
+.buyin-copy {
+  margin: 0.45rem 0 0.85rem;
+  font-size: 0.86rem;
+  color: rgba(232, 238, 247, 0.78);
+}
+
+.buyin-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.buyin-preset {
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.buyin-preset:hover {
+  border-color: rgba(212, 168, 83, 0.45);
+  color: var(--gold-soft);
+}
+
+.buyin-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
 .seat-avatar-wrap .player-avatar,
 .seat-avatar-wrap > div {
   width: 44px !important;

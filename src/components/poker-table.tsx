@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import * as Ably from "ably";
 import { PlayingCard } from "@/components/playing-card";
 import { PlayerAvatar } from "@/components/player-avatar";
-import { Badge, Button, Input } from "@/components/ui";
+import { Badge, Button, Input, Label } from "@/components/ui";
 import type { PublicTableState } from "@/lib/poker/types";
 import { DEFAULT_TURN_SECONDS } from "@/lib/poker/types";
 import {
@@ -282,6 +282,9 @@ export function PokerTable({
   preferredSeat = null,
   inviteCode,
   fullscreen = false,
+  minBuyIn = 0,
+  currency = "CREDITS",
+  walletBalance = 0,
   onPlayersChanged,
   onSitResult,
 }: {
@@ -301,6 +304,11 @@ export function PokerTable({
   inviteCode?: string;
   /** Immersive phone / fullscreen play layout */
   fullscreen?: boolean;
+  /** Minimum buy-in required to sit (room.buyIn) */
+  minBuyIn?: number;
+  currency?: string;
+  /** Viewer's wallet balance for this room's currency */
+  walletBalance?: number;
   onPlayersChanged?: () => void;
   onSitResult?: (msg: string) => void;
 }) {
@@ -334,6 +342,9 @@ export function PokerTable({
   const [chatBubbles, setChatBubbles] = useState<TableChatBubble[]>([]);
   const [chatText, setChatText] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
+  const [buyInSeat, setBuyInSeat] = useState<number | null>(null);
+  const [buyInAmount, setBuyInAmount] = useState("");
+  const [walletLeft, setWalletLeft] = useState(walletBalance);
   const seenChatIds = useRef(new Set<string>());
   const lastActionKey = useRef<string>("");
   const lastHandRef = useRef(0);
@@ -361,6 +372,10 @@ export function PokerTable({
       stopListen();
     };
   }, []);
+
+  useEffect(() => {
+    setWalletLeft(walletBalance);
+  }, [walletBalance]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1074,10 +1089,29 @@ export function PokerTable({
     }
   }
 
-  async function sitAt(seatIndex: number) {
+  function openBuyIn(seatIndex: number) {
     if (!canSit || busy) return;
     unlockAudio();
     playSfx("click");
+    const floor = Math.max(0, minBuyIn);
+    setBuyInSeat(seatIndex);
+    setBuyInAmount(String(floor));
+    setError(null);
+  }
+
+  async function confirmBuyIn(e?: FormEvent) {
+    e?.preventDefault();
+    if (buyInSeat == null || busy) return;
+    const floor = Math.max(0, minBuyIn);
+    const amount = Math.round(Number(buyInAmount) * 100) / 100;
+    if (!Number.isFinite(amount) || amount < floor) {
+      setError(`Buy-in must be at least ${floor} ${currency}`);
+      return;
+    }
+    if (amount > walletLeft) {
+      setError(`Insufficient balance (have ${walletLeft})`);
+      return;
+    }
     setBusy(true);
     setError(null);
     setHint(null);
@@ -1086,8 +1120,9 @@ export function PokerTable({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          seat: seatIndex,
+          seat: buyInSeat,
           inviteCode: inviteCode || undefined,
+          buyInAmount: amount,
         }),
       });
       const json = await readJson<{
@@ -1097,15 +1132,17 @@ export function PokerTable({
       }>(res);
       if (!res.ok) throw new Error(json.error || "Could not sit");
       const msg = json.seated
-        ? `You sat at seat ${seatIndex + 1}.`
+        ? `You sat at seat ${buyInSeat + 1} with ${amount} ${currency}.`
         : json.message ||
-          `Seat ${seatIndex + 1} reserved — you join when this hand ends.`;
+          `Seat ${buyInSeat + 1} reserved — you join when this hand ends.`;
       setHint(msg);
       onSitResult?.(msg);
+      setWalletLeft((w) => Math.max(0, w - amount));
+      setBuyInSeat(null);
       await refresh();
       onPlayersChanged?.();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not sit");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not sit");
     } finally {
       setBusy(false);
     }
@@ -1636,7 +1673,7 @@ export function PokerTable({
                 <button
                   type="button"
                   disabled={!canSit || busy}
-                  onClick={() => void sitAt(seatIndex)}
+                  onClick={() => openBuyIn(seatIndex)}
                   className={cn("seat-empty-classic", reservedHere && "is-reserved")}
                   title={
                     canSit
@@ -1831,6 +1868,79 @@ export function PokerTable({
           </Button>
         </form>
       ) : null}
+
+      {buyInSeat != null && (
+        <div className="buyin-overlay" role="presentation" onClick={() => !busy && setBuyInSeat(null)}>
+          <form
+            className="buyin-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="buyin-title"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => void confirmBuyIn(e)}
+          >
+            <div className="buyin-eyebrow">Seat {buyInSeat + 1}</div>
+            <h2 id="buyin-title" className="buyin-title">
+              Choose buy-in
+            </h2>
+            <p className="buyin-copy">
+              Minimum {minBuyIn.toLocaleString()} {currency}. Balance{" "}
+              {walletLeft.toLocaleString()} {currency}.
+            </p>
+            <div className="buyin-presets">
+              <button
+                type="button"
+                className="buyin-preset"
+                onClick={() => setBuyInAmount(String(minBuyIn))}
+              >
+                Min
+              </button>
+              <button
+                type="button"
+                className="buyin-preset"
+                onClick={() =>
+                  setBuyInAmount(
+                    String(
+                      Math.max(
+                        minBuyIn,
+                        Math.floor(Math.min(walletLeft, minBuyIn * 2) * 100) / 100,
+                      ),
+                    ),
+                  )
+                }
+              >
+                2× min
+              </button>
+              <button
+                type="button"
+                className="buyin-preset"
+                onClick={() =>
+                  setBuyInAmount(String(Math.max(minBuyIn, Math.floor(walletLeft * 100) / 100)))
+                }
+              >
+                Max
+              </button>
+            </div>
+            <Label htmlFor="buyin-amount">Amount</Label>
+            <Input
+              id="buyin-amount"
+              inputMode="decimal"
+              value={buyInAmount}
+              onChange={(e) => setBuyInAmount(e.target.value)}
+              disabled={busy}
+              autoFocus
+            />
+            <div className="buyin-actions">
+              <Button type="button" variant="ghost" disabled={busy} onClick={() => setBuyInSeat(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busy || walletLeft < minBuyIn}>
+                {busy ? "…" : "Sit down"}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

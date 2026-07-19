@@ -82,7 +82,7 @@ export async function POST(req: Request) {
     transaction: { ...tx, amount: toNumber(tx.amount) },
     message:
       parsed.data.gateway === "USDT"
-        ? "Mock USDT deposit credited after hash submission"
-        : "Mock GCash deposit credited with reference confirmation",
+        ? "USDT deposit credited after hash submission"
+        : "GCash deposit credited with reference confirmation",
   });
 }

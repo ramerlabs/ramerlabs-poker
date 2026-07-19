@@ -69,6 +69,6 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     transaction: { ...tx, amount: toNumber(tx.amount) },
-    message: "Mock withdrawal completed",
+    message: "Withdrawal completed",
   });
 }

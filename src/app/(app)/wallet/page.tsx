@@ -143,7 +143,7 @@ export default function WalletPage() {
       <div>
         <h1 className="text-4xl font-semibold text-[var(--gold-soft)]">Wallet</h1>
         <p className="mt-2 text-[var(--muted)]">
-          Split balances for credits vs real cash. Payment gateways are mock integrations.
+          Split balances for credits vs real cash. Deposit and withdraw via USDT or GCash.
         </p>
       </div>
 
@@ -203,7 +203,7 @@ export default function WalletPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel className="p-6">
-          <h2 className="text-xl font-semibold">Deposit (mock)</h2>
+          <h2 className="text-xl font-semibold">Deposit</h2>
           {active && (
             <div className="mt-2 space-y-1 text-xs text-[var(--muted)]">
               <p>USDT address: {active.usdtAddress}</p>
@@ -242,7 +242,7 @@ export default function WalletPage() {
         </Panel>
 
         <Panel className="p-6">
-          <h2 className="text-xl font-semibold">Withdraw (mock)</h2>
+          <h2 className="text-xl font-semibold">Withdraw</h2>
           <form onSubmit={withdraw} className="mt-4 space-y-3">
             <div>
               <Label>Gateway</Label>

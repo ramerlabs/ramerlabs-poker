@@ -49,7 +49,7 @@ Never commit `.env` / `.env.local`. Rotate any credentials that were shared in c
 - Public **FREE** rooms (credits) and private **REAL** rooms (invite codes)
 - Texas Hold'em engine: shuffle, deal, blinds, streets, hand evaluation
 - Split wallet: Credits vs Real Cash + currency switcher (USD/PHP)
-- Mock **USDT** / **GCash** deposit & withdrawal gateways
+- **USDT** / **GCash** deposit & withdrawal gateways
 - Admin currency toggle and payment parameter management
 
 ## Deploy (Vercel)

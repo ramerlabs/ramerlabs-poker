@@ -171,6 +171,7 @@ async function seatWaiter(
   roomId: string,
   userId: string,
   preferredSeat?: number | null,
+  buyInAmount?: number | null,
 ): Promise<{ seated: boolean; reason?: string; seat?: number }> {
   const room = await prisma.room.findUnique({
     where: { id: roomId },
@@ -188,18 +189,35 @@ async function seatWaiter(
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return { seated: false, reason: "User not found" };
 
-  const buyIn = toNumber(room.buyIn);
+  const minBuyIn = toNumber(room.buyIn);
   const balanceField = room.type === "FREE" ? "creditsBalance" : "realMoneyBalance";
   const balance = toNumber(user[balanceField]);
-  if (balance < buyIn) {
+  if (balance < minBuyIn) {
     await prisma.roomWaitlist.deleteMany({ where: { roomId, userId } });
-    return { seated: false, reason: "Insufficient balance" };
+    return { seated: false, reason: `Need at least ${minBuyIn} to join` };
   }
   if (room.type === "REAL" && user.currentCurrency !== room.currency) {
     return { seated: false, reason: "Wrong active currency" };
   }
 
   const entry = room.waitlist.find((w) => w.userId === userId);
+  const fromWaitlist =
+    entry?.buyInAmount != null ? toNumber(entry.buyInAmount) : null;
+  const rawAmount = buyInAmount ?? fromWaitlist ?? minBuyIn;
+  const amount = Math.round(Number(rawAmount) * 100) / 100;
+  if (!Number.isFinite(amount) || amount < minBuyIn) {
+    return {
+      seated: false,
+      reason: `Buy-in must be at least ${minBuyIn}`,
+    };
+  }
+  if (amount > balance) {
+    return {
+      seated: false,
+      reason: `Insufficient balance (have ${balance}, need ${amount})`,
+    };
+  }
+
   const prefer = preferredSeat ?? entry?.preferredSeat ?? null;
   const seat = await nextOpenSeat(roomId, room.maxPlayers, prefer);
   if (seat == null) return { seated: false, reason: "No seat" };
@@ -207,14 +225,14 @@ async function seatWaiter(
   await prisma.$transaction([
     prisma.user.update({
       where: { id: userId },
-      data: { [balanceField]: new Prisma.Decimal(balance - buyIn) },
+      data: { [balanceField]: new Prisma.Decimal(balance - amount) },
     }),
     prisma.roomPlayer.create({
       data: {
         roomId,
         userId,
         seat,
-        stack: new Prisma.Decimal(buyIn),
+        stack: new Prisma.Decimal(amount),
       },
     }),
     prisma.roomWaitlist.deleteMany({ where: { roomId, userId } }),
@@ -227,7 +245,12 @@ async function seatWaiter(
 }
 
 /** Click open seat: sit now between hands, or claim seat for next hand. */
-export async function claimSeat(roomId: string, userId: string, seat: number) {
+export async function claimSeat(
+  roomId: string,
+  userId: string,
+  seat: number,
+  buyInAmount?: number | null,
+) {
   const room = await prisma.room.findUnique({
     where: { id: roomId },
     include: { players: true },
@@ -244,11 +267,20 @@ export async function claimSeat(roomId: string, userId: string, seat: number) {
   const occupied = room.players.find((p) => p.seat === seat);
   if (occupied) throw new Error("That seat is taken");
 
+  const minBuyIn = toNumber(room.buyIn);
+  const amount =
+    buyInAmount != null && Number.isFinite(buyInAmount)
+      ? Math.round(Number(buyInAmount) * 100) / 100
+      : minBuyIn;
+  if (amount < minBuyIn) {
+    throw new Error(`Buy-in must be at least ${minBuyIn}`);
+  }
+
   const state = await ensureGameState(roomId);
   const betweenHands = state.street === "waiting" || state.street === "complete";
 
   if (betweenHands) {
-    const result = await seatWaiter(roomId, userId, seat);
+    const result = await seatWaiter(roomId, userId, seat, amount);
     if (!result.seated) throw new Error(result.reason || "Could not sit");
     return { seated: true as const, seat: result.seat ?? seat, waiting: false };
   }
@@ -256,15 +288,25 @@ export async function claimSeat(roomId: string, userId: string, seat: number) {
   // Mid-hand: reserve seat for next hand
   await prisma.roomWaitlist.upsert({
     where: { roomId_userId: { roomId, userId } },
-    create: { roomId, userId, preferredSeat: seat, lastSeenAt: new Date() },
-    update: { preferredSeat: seat, lastSeenAt: new Date() },
+    create: {
+      roomId,
+      userId,
+      preferredSeat: seat,
+      buyInAmount: new Prisma.Decimal(amount),
+      lastSeenAt: new Date(),
+    },
+    update: {
+      preferredSeat: seat,
+      buyInAmount: new Prisma.Decimal(amount),
+      lastSeenAt: new Date(),
+    },
   });
 
   return {
     seated: false as const,
     waiting: true,
     preferredSeat: seat,
-    message: `Seat ${seat + 1} reserved — you will sit when this hand ends.`,
+    message: `Seat ${seat + 1} reserved — you will sit with ${amount} when this hand ends.`,
   };
 }
 

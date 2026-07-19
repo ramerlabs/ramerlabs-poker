@@ -298,15 +298,13 @@ async function advanceOneBotIfReady(state: PokerTableState): Promise<{
     return { state, acted: false };
   }
 
-  const elapsedStart = Math.max(
-    state.turnStartedAt ?? 0,
-    state.streetHoldUntil ?? 0,
-  );
+  // Clock starts after deal/reveal — bots only need a brief think, not the full turn timer
+  const turnStartedAt = state.turnStartedAt;
+  if (turnStartedAt == null) {
+    return { state, acted: false };
+  }
   const thinkMs = botThinkMs(state, actor.userId);
-  const turnLimitMs = (state.turnSeconds || DEFAULT_TURN_SECONDS) * 1000;
-  // Never leave a bot frozen past the visible turn clock
-  const readyAt = elapsedStart + Math.min(thinkMs, turnLimitMs);
-  if (Date.now() < readyAt) {
+  if (Date.now() < turnStartedAt + thinkMs) {
     return { state, acted: false };
   }
 
@@ -337,7 +335,7 @@ const tickInflight = new Map<string, Promise<PokerTableState>>();
 const lastTickAt = new Map<string, number>();
 const lastRosterSyncAt = new Map<string, number>();
 
-export async function tickRoomDebounced(roomId: string, minIntervalMs = 350): Promise<PokerTableState> {
+export async function tickRoomDebounced(roomId: string, minIntervalMs = 200): Promise<PokerTableState> {
   const existing = tickInflight.get(roomId);
   if (existing) return existing;
 
@@ -404,8 +402,8 @@ export async function tickRoom(roomId: string): Promise<PokerTableState> {
     }
   }
 
-  // Catch up overdue bots in one tick so the table can't freeze at timer 0
-  for (let i = 0; i < 6; i += 1) {
+  // Catch up bot chain quickly — they should not sit until the human turn timer ends
+  for (let i = 0; i < 10; i += 1) {
     const prev = state;
     const result = await advanceOneBotIfReady(state);
     if (!result.acted) break;

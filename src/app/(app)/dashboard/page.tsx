@@ -40,7 +40,7 @@ export default async function DashboardPage() {
           <div className="mt-2 text-4xl font-semibold text-[var(--success)]">
             {formatMoney(toNumber(user?.realMoneyBalance), user?.currentCurrency ?? "USD")}
           </div>
-          <p className="mt-2 text-sm text-[var(--muted)]">Funded via mock USDT / GCash gateways</p>
+          <p className="mt-2 text-sm text-[var(--muted)]">Funded via USDT / GCash gateways</p>
         </Panel>
       </div>
 

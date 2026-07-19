@@ -46,6 +46,9 @@ type RoomPayload = {
     waiting: boolean;
     waitPosition: number | null;
     preferredSeat: number | null;
+    walletBalance?: number;
+    currency?: string;
+    minBuyIn?: number;
   };
   game: { state: PublicTableState };
 };
@@ -361,6 +364,9 @@ export default function RoomDetailPage() {
       preferredSeat={data.me.preferredSeat}
       inviteCode={inviteCode || undefined}
       fullscreen={isMobile && tableOpen}
+      minBuyIn={data.me.minBuyIn ?? data.room.buyIn}
+      currency={data.me.currency ?? data.room.currency}
+      walletBalance={data.me.walletBalance ?? 0}
       onPlayersChanged={() => void load()}
       onSitResult={(msg) => {
         setHint(msg);
@@ -400,13 +406,13 @@ export default function RoomDetailPage() {
             <p className="mt-2 text-sm text-[var(--muted)]">
               {isMobile ? (
                 <>
-                  Tap <span className="text-[var(--gold-soft)]">Go to table</span> then choose an
-                  open seat (buy-in {data.room.buyIn} {data.room.currency}).
+                  Tap <span className="text-[var(--gold-soft)]">Go to table</span>, pick an open
+                  seat, then choose your buy-in (min {data.room.buyIn} {data.room.currency}).
                 </>
               ) : (
                 <>
-                  Click any <span className="text-[var(--gold-soft)]">Open seat</span> on the table
-                  to join (buy-in {data.room.buyIn} {data.room.currency}).
+                  Click an <span className="text-[var(--gold-soft)]">Open seat</span>, then choose
+                  your buy-in (min {data.room.buyIn} {data.room.currency}).
                 </>
               )}
             </p>

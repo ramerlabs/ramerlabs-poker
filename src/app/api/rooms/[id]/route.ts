@@ -81,6 +81,23 @@ export async function GET(req: Request, { params }: Params) {
     ReturnType<typeof getRecentTableChats>
   >);
 
+  const meUser = light
+    ? null
+    : await prisma.user.findUnique({
+        where: { id: authResult.userId },
+        select: {
+          creditsBalance: true,
+          realMoneyBalance: true,
+          currentCurrency: true,
+        },
+      });
+
+  const walletBalance = meUser
+    ? room.type === "FREE"
+      ? toNumber(meUser.creditsBalance)
+      : toNumber(meUser.realMoneyBalance)
+    : 0;
+
   return NextResponse.json({
     room: light
       ? {
@@ -127,6 +144,9 @@ export async function GET(req: Request, { params }: Params) {
           preferredSeat: waiting
             ? (room.waitlist.find((w) => w.userId === authResult.userId)?.preferredSeat ?? null)
             : null,
+          walletBalance,
+          currency: room.currency,
+          minBuyIn: toNumber(room.buyIn),
         },
     game,
     chats,
