@@ -349,7 +349,10 @@ export function PokerTable({
   const timeoutNoticeHand = useRef<number | null>(null);
 
   useEffect(() => {
-    setMutedState(loadMutePreference());
+    // Prefer sound ON; only respect an explicit mute preference
+    const wasMuted = loadMutePreference();
+    setMutedState(wasMuted);
+    if (!wasMuted) setMuted(false);
     setAudioUnlocked(isAudioUnlocked());
     const stopUnlock = armAudioUnlock();
     const stopListen = onAudioUnlock(() => setAudioUnlocked(true));
@@ -1237,25 +1240,28 @@ export function PokerTable({
               )}
             </>
           )}
-          {!audioUnlocked || muted ? (
-            <Button
-              variant="felt"
-              className="!px-3 !py-2 text-xs"
-              onClick={() => void enableTableSound()}
-              title="Enable deal, chip, and win sounds — works while watching too"
-            >
-              Enable sound
-            </Button>
-          ) : (
-            <Button
-              variant="ghost"
-              className="!px-3 !py-2 text-xs"
-              onClick={() => toggleMute()}
-              title="Mute table sounds"
-            >
-              🔊{!compact && " Sound on"}
-            </Button>
-          )}
+          <Button
+            variant={muted ? "ghost" : "felt"}
+            className="!px-3 !py-2 text-xs"
+            onClick={() => {
+              if (muted) {
+                void enableTableSound();
+              } else {
+                void unlockAudio();
+                toggleMute();
+              }
+            }}
+            title={
+              muted
+                ? "Unmute table sounds"
+                : audioUnlocked
+                  ? "Mute table sounds"
+                  : "Sound is on — tap once if your browser blocked audio"
+            }
+          >
+            {muted ? "🔇" : "🔊"}
+            {!compact && (muted ? " Sound off" : " Sound on")}
+          </Button>
           {!waiting && state.actionSeat != null && (
             <>
               <span className="text-sm text-[var(--muted)]">

@@ -77,7 +77,9 @@ export async function GET(req: Request, { params }: Params) {
   const waitPosition =
     room.waitlist.findIndex((w) => w.userId === authResult.userId) + 1 || null;
   const isAdmin = authResult.role === "ADMIN";
-  const chats = await getRecentTableChats(id);
+  const chats = await getRecentTableChats(id).catch(() => [] as Awaited<
+    ReturnType<typeof getRecentTableChats>
+  >);
 
   return NextResponse.json({
     room: light

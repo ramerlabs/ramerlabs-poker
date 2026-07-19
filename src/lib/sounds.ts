@@ -12,9 +12,10 @@ type Sfx =
   | "alert"
   | "timeout";
 
-const STORAGE_KEY = "rl-poker-sfx-muted";
+const STORAGE_KEY = "rl-poker-table-sound";
 
 let ctx: AudioContext | null = null;
+/** Default ON — only flipped off when the player mutes. */
 let muted = false;
 let unlocked = false;
 let unlockPromise: Promise<void> | null = null;
@@ -33,7 +34,19 @@ function getCtx() {
 
 export function loadMutePreference() {
   if (typeof window === "undefined") return false;
-  muted = localStorage.getItem(STORAGE_KEY) === "1";
+  const raw = localStorage.getItem(STORAGE_KEY);
+  // Default sound ON. Mute only when preference is explicitly "off".
+  muted = raw === "off";
+  if (raw == null || raw === "") {
+    localStorage.setItem(STORAGE_KEY, "on");
+    muted = false;
+  }
+  // Drop legacy mute flag so everyone starts with sound on once
+  try {
+    localStorage.removeItem("rl-poker-sfx-muted");
+  } catch {
+    // ignore
+  }
   return muted;
 }
 
@@ -60,7 +73,7 @@ function notifyUnlocked() {
 export function setMuted(value: boolean) {
   muted = value;
   if (typeof window !== "undefined") {
-    localStorage.setItem(STORAGE_KEY, value ? "1" : "0");
+    localStorage.setItem(STORAGE_KEY, value ? "off" : "on");
   }
   if (!value) void unlockAudio();
 }

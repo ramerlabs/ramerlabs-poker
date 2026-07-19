@@ -23,23 +23,29 @@ function sanitizeChatText(raw: string) {
 }
 
 export async function getRecentTableChats(roomId: string): Promise<TableChatMessage[]> {
-  const since = new Date(Date.now() - CHAT_VISIBLE_MS);
-  const rows = await prisma.roomChatMessage.findMany({
-    where: { roomId, createdAt: { gte: since } },
-    orderBy: { createdAt: "asc" },
-    take: 24,
-    include: { user: { select: { name: true, email: true } } },
-  });
+  try {
+    if (!prisma.roomChatMessage) return [];
+    const since = new Date(Date.now() - CHAT_VISIBLE_MS);
+    const rows = await prisma.roomChatMessage.findMany({
+      where: { roomId, createdAt: { gte: since } },
+      orderBy: { createdAt: "asc" },
+      take: 24,
+      include: { user: { select: { name: true, email: true } } },
+    });
 
-  return rows.map((row) => ({
-    id: row.id,
-    roomId: row.roomId,
-    userId: row.userId,
-    seat: row.seat,
-    text: row.text,
-    name: row.user.name || row.user.email.split("@")[0] || "Player",
-    createdAt: row.createdAt.toISOString(),
-  }));
+    return rows.map((row) => ({
+      id: row.id,
+      roomId: row.roomId,
+      userId: row.userId,
+      seat: row.seat,
+      text: row.text,
+      name: row.user.name || row.user.email.split("@")[0] || "Player",
+      createdAt: row.createdAt.toISOString(),
+    }));
+  } catch {
+    // Never block room load if chat table/client is unavailable
+    return [];
+  }
 }
 
 export async function postTableChat(
@@ -48,6 +54,9 @@ export async function postTableChat(
   text: string,
 ): Promise<TableChatMessage> {
   if (isBotUserId(userId)) throw new Error("Bots cannot chat");
+  if (!prisma.roomChatMessage) {
+    throw new Error("Chat is temporarily unavailable — restart the server");
+  }
 
   const cleaned = sanitizeChatText(text);
   if (!cleaned) throw new Error("Message is empty");

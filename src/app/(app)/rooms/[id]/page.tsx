@@ -6,7 +6,7 @@ import { Maximize2, Minimize2, Spade, X } from "lucide-react";
 import { PokerTable } from "@/components/poker-table";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
 import type { PublicTableState } from "@/lib/poker/types";
-import { playSfx, setMuted, unlockAudio } from "@/lib/sounds";
+import { setMuted, unlockAudio } from "@/lib/sounds";
 import { readJson } from "@/lib/utils";
 
 type RoomPayload = {
@@ -310,7 +310,9 @@ export default function RoomDetailPage() {
   if (!data) {
     return (
       <Panel className="max-w-lg p-6">
-        <h1 className="text-2xl font-semibold text-[var(--gold-soft)]">Private room</h1>
+        <h1 className="text-2xl font-semibold text-[var(--gold-soft)]">
+          {/private/i.test(error || "") ? "Private room" : "Couldn’t open room"}
+        </h1>
         <p className="mt-2 text-sm text-[var(--muted)]">{error}</p>
         <form onSubmit={join} className="mt-4 space-y-3">
           <div>
@@ -322,9 +324,19 @@ export default function RoomDetailPage() {
               placeholder="ABCD1234"
             />
           </div>
-          <Button type="submit" disabled={busy}>
-            {busy ? "…" : "Join table"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" disabled={busy}>
+              {busy ? "…" : "Join table"}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => void load()}
+            >
+              Retry
+            </Button>
+          </div>
         </form>
       </Panel>
     );
@@ -463,8 +475,7 @@ export default function RoomDetailPage() {
               </div>
             </div>
             <p className="text-sm leading-relaxed text-[var(--muted)]">
-              Watch or play fullscreen — table sounds work even if you are not seated. Tap Enable
-              sound once (browsers block audio until you interact).
+              Watch or play fullscreen — table sound is on by default, even if you are not seated.
             </p>
             <div className="flex flex-wrap gap-2 text-xs text-[var(--muted)]">
               <span className="rounded-full border border-[var(--line)] bg-black/25 px-2.5 py-1">
@@ -482,23 +493,17 @@ export default function RoomDetailPage() {
             <div className="flex flex-col gap-2">
               <Button
                 className="w-full !py-3.5 text-base font-semibold"
-                onClick={() => void openTable({ browserFs: true })}
+                onClick={() => {
+                  setMuted(false);
+                  void unlockAudio();
+                  void openTable({ browserFs: true });
+                }}
               >
                 {seated ? "Go to table" : "Watch table"}
               </Button>
-              <Button
-                variant="ghost"
-                className="w-full"
-                onClick={() => {
-                  setMuted(false);
-                  void unlockAudio().then(() => {
-                    playSfx("click");
-                    setTimeout(() => playSfx("chip"), 80);
-                  });
-                }}
-              >
-                Enable sound
-              </Button>
+              <p className="text-center text-xs text-[var(--muted)]">
+                Table sound is on by default. Tap the table once if your browser blocks audio.
+              </p>
             </div>
           </div>
         </Panel>
