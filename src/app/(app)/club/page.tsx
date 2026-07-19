@@ -9,6 +9,7 @@ type ClubSummary = {
   id: string;
   name: string;
   balance: number;
+  realBalance: number;
   clientCount: number;
   roomCount: number;
 };
@@ -250,15 +251,24 @@ export default function ClubPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Panel className="p-6">
           <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-            Club balance
+            Free credits
           </div>
           <div className="mt-2 text-4xl font-semibold text-[var(--gold-soft)]">
-            {club.balance.toLocaleString()}
+            {(club.balance ?? 0).toLocaleString()}
           </div>
-          <p className="mt-2 text-sm text-[var(--muted)]">Credits available to assign</p>
+          <p className="mt-2 text-sm text-[var(--muted)]">For FREE table clients</p>
+        </Panel>
+        <Panel className="p-6">
+          <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+            Real credits
+          </div>
+          <div className="mt-2 text-4xl font-semibold text-[var(--gold-soft)]">
+            {(club.realBalance ?? 0).toLocaleString()}
+          </div>
+          <p className="mt-2 text-sm text-[var(--muted)]">For REAL table clients</p>
         </Panel>
         <Panel className="p-6">
           <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Clients</div>

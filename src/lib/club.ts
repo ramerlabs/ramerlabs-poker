@@ -9,13 +9,21 @@ export type OwnedClub = {
   active: boolean;
   ownerId: string;
   balance: number;
+  realBalance: number;
 };
 
 /** Active club owned by this user, if any. */
 export async function getOwnedClub(userId: string): Promise<OwnedClub | null> {
   const club = await prisma.club.findUnique({
     where: { ownerId: userId },
-    select: { id: true, name: true, active: true, ownerId: true, balance: true },
+    select: {
+      id: true,
+      name: true,
+      active: true,
+      ownerId: true,
+      balance: true,
+      realBalance: true,
+    },
   });
   if (!club || !club.active) return null;
   return {
@@ -24,6 +32,7 @@ export async function getOwnedClub(userId: string): Promise<OwnedClub | null> {
     active: club.active,
     ownerId: club.ownerId,
     balance: toNumber(club.balance),
+    realBalance: toNumber(club.realBalance),
   };
 }
 

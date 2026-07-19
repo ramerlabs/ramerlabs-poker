@@ -161,8 +161,10 @@ model Club {
   /// One club per owner.
   ownerId   String   @unique
   owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  /// Credits the owner can assign to clients (funded by admin).
+  /// Free credits the owner can assign to clients (funded by admin).
   balance   Decimal  @default(0) @db.Decimal(18, 2)
+  /// Real/cash credits the owner can assign to clients (funded by admin).
+  realBalance Decimal @default(0) @db.Decimal(18, 2)
   active    Boolean  @default(true)
   rooms     Room[]
   clients   ClubClient[]

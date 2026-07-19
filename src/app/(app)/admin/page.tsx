@@ -100,6 +100,7 @@ type AdminClub = {
   name: string;
   active: boolean;
   balance: number;
+  realBalance: number;
   roomCount: number;
   clientCount: number;
   owner: { id: string; name: string | null; email: string };
@@ -128,6 +129,15 @@ export default function AdminPage() {
   const [creatingCoupon, setCreatingCoupon] = useState(false);
   const [creatingClub, setCreatingClub] = useState(false);
   const [savingCurrency, setSavingCurrency] = useState(false);
+  const [fundModal, setFundModal] = useState<{
+    id: string;
+    name: string;
+    balance: number;
+    realBalance: number;
+  } | null>(null);
+  const [fundKind, setFundKind] = useState<"FREE" | "REAL">("FREE");
+  const [fundAmount, setFundAmount] = useState("1000");
+  const [funding, setFunding] = useState(false);
 
   async function loadTickets(filters?: {
     status?: string;
@@ -278,26 +288,47 @@ export default function AdminPage() {
     await load();
   }
 
-  async function fundClub(id: string, name: string) {
-    const raw = window.prompt(`Add credits to club “${name}” balance`, "1000");
-    if (raw == null) return;
-    const addBalance = Number(raw);
+  function openFundModal(club: AdminClub) {
+    setFundModal({
+      id: club.id,
+      name: club.name,
+      balance: club.balance ?? 0,
+      realBalance: club.realBalance ?? 0,
+    });
+    setFundKind("FREE");
+    setFundAmount("1000");
+  }
+
+  async function submitFundClub(e: FormEvent) {
+    e.preventDefault();
+    if (!fundModal) return;
+    const addBalance = Number(fundAmount);
     if (!Number.isFinite(addBalance) || addBalance <= 0) {
       toast.error("Enter a positive credit amount");
       return;
     }
-    const res = await fetch("/api/admin/clubs", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, addBalance }),
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      toast.error(json.error || "Could not fund club");
-      return;
+    setFunding(true);
+    try {
+      const res = await fetch("/api/admin/clubs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: fundModal.id,
+          addBalance,
+          balanceKind: fundKind,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error || "Could not fund club");
+        return;
+      }
+      toast.success(json.message);
+      setFundModal(null);
+      await load();
+    } finally {
+      setFunding(false);
     }
-    toast.success(json.message);
-    await load();
   }
 
   async function toggleClub(id: string, active: boolean) {
@@ -526,6 +557,110 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6 animate-fade-up">
+      {fundModal && (
+        <div
+          className="fixed inset-0 z-[180] flex items-center justify-center bg-black/65 px-4 backdrop-blur-sm"
+          role="presentation"
+          onClick={() => !funding && setFundModal(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="fund-club-title"
+            className="w-full max-w-md rounded-2xl border border-[var(--line)] bg-[rgba(14,22,36,0.97)] p-6 shadow-[0_24px_64px_rgba(0,0,0,0.55)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="fund-club-title" className="text-xl font-semibold text-[var(--gold-soft)]">
+              Add credits
+            </h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Top up club float for{" "}
+              <span className="text-[var(--text)]">{fundModal.name}</span>
+            </p>
+            <div className="mt-3 flex flex-wrap gap-3 text-xs text-[var(--muted)]">
+              <span>
+                Free:{" "}
+                <span className="text-[var(--gold-soft)]">
+                  {fundModal.balance.toLocaleString()}
+                </span>
+              </span>
+              <span>
+                Real:{" "}
+                <span className="text-[var(--gold-soft)]">
+                  {fundModal.realBalance.toLocaleString()}
+                </span>
+              </span>
+            </div>
+
+            <form onSubmit={submitFundClub} className="mt-5 space-y-4">
+              <div>
+                <Label>Credit type</Label>
+                <div className="mt-1.5 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFundKind("FREE")}
+                    className={
+                      fundKind === "FREE"
+                        ? "rounded-xl border border-[rgba(212,168,83,0.55)] bg-[rgba(184,137,45,0.18)] px-3 py-3 text-sm font-semibold text-[var(--gold-soft)]"
+                        : "rounded-xl border border-[var(--line)] bg-black/20 px-3 py-3 text-sm text-[var(--muted)] hover:bg-white/5"
+                    }
+                  >
+                    Free credits
+                    <span className="mt-1 block text-xs font-normal opacity-80">
+                      Client credits wallet
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFundKind("REAL")}
+                    className={
+                      fundKind === "REAL"
+                        ? "rounded-xl border border-[rgba(212,168,83,0.55)] bg-[rgba(184,137,45,0.18)] px-3 py-3 text-sm font-semibold text-[var(--gold-soft)]"
+                        : "rounded-xl border border-[var(--line)] bg-black/20 px-3 py-3 text-sm text-[var(--muted)] hover:bg-white/5"
+                    }
+                  >
+                    Real credits
+                    <span className="mt-1 block text-xs font-normal opacity-80">
+                      Client cash wallet
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="fund-amount">Amount</Label>
+                <Input
+                  id="fund-amount"
+                  type="number"
+                  min={0.01}
+                  step="0.01"
+                  required
+                  value={fundAmount}
+                  onChange={(e) => setFundAmount(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2 pt-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={funding}
+                  onClick={() => setFundModal(null)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={funding}>
+                  {funding
+                    ? "Adding…"
+                    : `Add ${fundKind === "FREE" ? "free" : "real"} credits`}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       <div>
         <h1 className="text-4xl font-semibold text-[var(--gold-soft)]">Admin</h1>
         <p className="mt-2 text-[var(--muted)]">
@@ -630,17 +765,14 @@ export default function AdminPage() {
                   </Badge>
                 </div>
                 <div className="mt-1 text-xs text-[var(--muted)]">
-                  Owner: {c.owner.name || c.owner.email} ({c.owner.email}) · balance{" "}
-                  {(c.balance ?? 0).toLocaleString()} · {c.clientCount ?? 0} client(s) ·{" "}
+                  Owner: {c.owner.name || c.owner.email} ({c.owner.email}) · free{" "}
+                  {(c.balance ?? 0).toLocaleString()} · real{" "}
+                  {(c.realBalance ?? 0).toLocaleString()} · {c.clientCount ?? 0} client(s) ·{" "}
                   {c.roomCount} table(s)
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => void fundClub(c.id, c.name)}
-                >
+                <Button type="button" variant="ghost" onClick={() => openFundModal(c)}>
                   Add credits
                 </Button>
                 <Button

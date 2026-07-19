@@ -8,8 +8,10 @@ import { toNumber } from "@/lib/utils";
 const createSchema = z.object({
   name: z.string().min(2).max(64),
   ownerEmail: z.string().email(),
-  /** Optional starting club credit balance. */
+  /** Optional starting free club credit balance. */
   balance: z.number().min(0).max(10_000_000).optional(),
+  /** Optional starting real/cash club balance. */
+  realBalance: z.number().min(0).max(10_000_000).optional(),
 });
 
 const patchSchema = z.object({
@@ -17,8 +19,10 @@ const patchSchema = z.object({
   name: z.string().min(2).max(64).optional(),
   ownerEmail: z.string().email().optional(),
   active: z.boolean().optional(),
-  /** Add credits to the club owner float (admin top-up). */
+  /** Add credits to a club float (admin top-up). */
   addBalance: z.number().positive().max(10_000_000).optional(),
+  /** FREE → club.balance (credits); REAL → club.realBalance (cash). */
+  balanceKind: z.enum(["FREE", "REAL"]).optional(),
 });
 
 export async function GET() {
@@ -39,6 +43,7 @@ export async function GET() {
       name: c.name,
       active: c.active,
       balance: toNumber(c.balance),
+      realBalance: toNumber(c.realBalance),
       owner: c.owner,
       roomCount: c._count.rooms,
       clientCount: c._count.clients,
@@ -81,6 +86,7 @@ export async function POST(req: Request) {
       name: parsed.data.name.trim(),
       ownerId: owner.id,
       balance: new Prisma.Decimal(parsed.data.balance ?? 0),
+      realBalance: new Prisma.Decimal(parsed.data.realBalance ?? 0),
     },
     include: {
       owner: { select: { id: true, name: true, email: true } },
@@ -94,6 +100,7 @@ export async function POST(req: Request) {
         name: club.name,
         active: club.active,
         balance: toNumber(club.balance),
+        realBalance: toNumber(club.realBalance),
         owner: club.owner,
         createdAt: club.createdAt,
       },
@@ -140,14 +147,27 @@ export async function PATCH(req: Request) {
     ownerId = owner.id;
   }
 
+  if (parsed.data.addBalance != null && !parsed.data.balanceKind) {
+    return NextResponse.json(
+      { error: "Choose FREE credits or REAL (cash) balance" },
+      { status: 400 },
+    );
+  }
+
+  const kind = parsed.data.balanceKind;
+  const amount = parsed.data.addBalance;
+
   const updated = await prisma.club.update({
     where: { id: club.id },
     data: {
       ownerId,
       ...(parsed.data.name != null ? { name: parsed.data.name.trim() } : {}),
       ...(parsed.data.active !== undefined ? { active: parsed.data.active } : {}),
-      ...(parsed.data.addBalance != null
-        ? { balance: { increment: new Prisma.Decimal(parsed.data.addBalance) } }
+      ...(amount != null && kind === "FREE"
+        ? { balance: { increment: new Prisma.Decimal(amount) } }
+        : {}),
+      ...(amount != null && kind === "REAL"
+        ? { realBalance: { increment: new Prisma.Decimal(amount) } }
         : {}),
     },
     include: {
@@ -155,17 +175,22 @@ export async function PATCH(req: Request) {
     },
   });
 
+  let message = `Club “${updated.name}” updated`;
+  if (amount != null && kind === "FREE") {
+    message = `Added ${amount.toLocaleString()} free credits to “${updated.name}” (free ${toNumber(updated.balance).toLocaleString()})`;
+  } else if (amount != null && kind === "REAL") {
+    message = `Added ${amount.toLocaleString()} real credits to “${updated.name}” (real ${toNumber(updated.realBalance).toLocaleString()})`;
+  }
+
   return NextResponse.json({
     club: {
       id: updated.id,
       name: updated.name,
       active: updated.active,
       balance: toNumber(updated.balance),
+      realBalance: toNumber(updated.realBalance),
       owner: updated.owner,
     },
-    message:
-      parsed.data.addBalance != null
-        ? `Added ${parsed.data.addBalance.toLocaleString()} credits to “${updated.name}” (balance ${toNumber(updated.balance).toLocaleString()})`
-        : `Club “${updated.name}” updated`,
+    message,
   });
 }

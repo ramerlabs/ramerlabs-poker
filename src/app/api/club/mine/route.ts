@@ -31,6 +31,7 @@ export async function GET() {
       name: club.name,
       active: club.active,
       balance: toNumber(club.balance),
+      realBalance: toNumber(club.realBalance),
       clientCount: club._count.clients,
       roomCount: club._count.rooms,
     },
