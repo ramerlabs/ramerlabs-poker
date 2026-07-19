@@ -142,6 +142,7 @@ export async function GET(req: Request, { params }: Params) {
   }
 
   return NextResponse.json({
+    serverNow: Date.now(),
     room: light
       ? {
           id: room.id,

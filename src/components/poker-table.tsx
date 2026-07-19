@@ -327,8 +327,9 @@ export function PokerTable({
   const [state, setState] = useState(initialState);
   const [players, setPlayers] = useState(initialPlayers);
 
-  // Parent props are a snapshot from page load. Live poll/Ably owns updates after mount.
-  // Never let a stale parent roster (fewer seats) wipe a fresher live roster.
+  // Parent props are a snapshot from page load / rare full reloads.
+  // Live poll/Ably owns updates after mount — never roll back to a stale snapshot
+  // just because pot/street/actionSeat differ (that froze the table on "Waiting… (0s)").
   useEffect(() => {
     setPlayers((prev) =>
       initialPlayers.length >= prev.length ? initialPlayers : prev,
@@ -337,17 +338,8 @@ export function PokerTable({
 
   useEffect(() => {
     setState((prev) => {
-      if (initialState.seats.length > prev.seats.length) return initialState;
       if (initialState.handNumber > prev.handNumber) return initialState;
-      if (
-        initialState.handNumber === prev.handNumber &&
-        initialState.seats.length === prev.seats.length &&
-        (initialState.pot !== prev.pot ||
-          initialState.street !== prev.street ||
-          initialState.actionSeat !== prev.actionSeat)
-      ) {
-        return initialState;
-      }
+      if (initialState.seats.length > prev.seats.length) return initialState;
       return prev;
     });
   }, [initialState]);
@@ -613,6 +605,8 @@ export function PokerTable({
   const lastStateVersionRef = useRef(0);
   const onPlayersChangedRef = useRef(onPlayersChanged);
   onPlayersChangedRef.current = onPlayersChanged;
+  /** Browser clock offset: serverNow - Date.now() (server is often ahead). */
+  const clockOffsetRef = useRef(0);
 
   const ingestChat = useCallback((msg: TableChatBubble) => {
     if (!msg?.id || seenChatIds.current.has(msg.id)) return;
@@ -626,49 +620,90 @@ export function PokerTable({
     }, remain);
   }, []);
 
+  const ingestChatRef = useRef(ingestChat);
+  ingestChatRef.current = ingestChat;
+
   const refresh = useCallback(async (opts?: { tick?: boolean; force?: boolean }) => {
-    // Never run parallel room fetches. `force` used to bypass this and let an
-    // older in-flight poll overwrite a newer sit/Ably snapshot (other player invisible).
+    // Never run parallel room fetches — but never let a hung fetch block forever.
     if (refreshInflight.current) {
       refreshQueued.current = true;
       if (opts?.tick !== false) refreshQueuedTick.current = true;
       return refreshInflight.current;
     }
 
-    // Default: light payload + tick (keeps bots/timeouts moving without heavy room loads)
     const doTick = opts?.tick !== false;
     const applyId = ++refreshApplyIdRef.current;
     const started = performance.now();
-    const run = (async () => {
-      const ac = new AbortController();
-      const kill = window.setTimeout(() => ac.abort(), 8_000);
+    const ac = new AbortController();
+    let settled = false;
+
+    const drainQueue = () => {
+      if (refreshQueued.current) {
+        refreshQueued.current = false;
+        const needTick = refreshQueuedTick.current;
+        refreshQueuedTick.current = false;
+        void refresh({ tick: needTick });
+      }
+    };
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(kill);
+      window.clearTimeout(hardCap);
+      if (refreshInflight.current === marker) refreshInflight.current = null;
+      drainQueue();
+    };
+
+    const kill = window.setTimeout(() => ac.abort(), 5_500);
+    // Absolute ceiling — stalled response bodies used to pin refreshInflight forever
+    // so every later poll no-oped and the UI froze at "Waiting… (0s)".
+    const hardCap = window.setTimeout(() => {
+      ac.abort();
+      finish();
+    }, 6_500);
+
+    const marker = (async () => {
       try {
         const qs = doTick ? "?light=1" : "?light=1&tick=0";
         const res = await fetch(`/api/rooms/${roomId}${qs}`, {
           cache: "no-store",
           headers: { "Cache-Control": "no-cache" },
-          // AbortSignal.timeout() is missing on some mobile browsers and
-          // was silently killing every poll (UI stuck on an old hand).
           signal: ac.signal,
         });
         const ms = Math.round(performance.now() - started);
-        // A newer refresh was started (should not happen with queueing, but be safe)
         if (applyId !== refreshApplyIdRef.current) return;
         if (!res.ok) {
           setConnFails((n) => n + 1);
           return;
         }
-        const json = await readJson<{
-          game?: { state?: PublicTableState; version?: number };
-          room?: { players?: RoomPlayer[]; chatEnabled?: boolean };
-          chats?: TableChatBubble[];
-        }>(res);
+        const json = await Promise.race([
+          readJson<{
+            game?: { state?: PublicTableState; version?: number };
+            room?: { players?: RoomPlayer[]; chatEnabled?: boolean };
+            chats?: TableChatBubble[];
+            serverNow?: number;
+          }>(res),
+          new Promise<never>((_, reject) => {
+            const t = window.setTimeout(() => reject(new Error("READ_TIMEOUT")), 5_000);
+            ac.signal.addEventListener(
+              "abort",
+              () => {
+                window.clearTimeout(t);
+                reject(new DOMException("Aborted", "AbortError"));
+              },
+              { once: true },
+            );
+          }),
+        ]);
         if (applyId !== refreshApplyIdRef.current) return;
+        if (typeof json.serverNow === "number" && Number.isFinite(json.serverNow)) {
+          clockOffsetRef.current = json.serverNow - Date.now();
+        }
         setLatencyMs(Math.min(ms, 9999));
         setConnFails(0);
         if (json.game?.state) {
           const ver = json.game.version ?? 0;
-          // Never apply an older server snapshot over a newer one
           if (ver >= lastStateVersionRef.current) {
             lastStateVersionRef.current = ver;
             setState(json.game.state);
@@ -684,26 +719,21 @@ export function PokerTable({
         }
         if (typeof json.room?.chatEnabled === "boolean") setChatOn(json.room.chatEnabled);
         if (json.chats?.length) {
-          for (const chat of json.chats) ingestChat(chat);
+          for (const chat of json.chats) ingestChatRef.current(chat);
         }
       } catch {
         if (applyId === refreshApplyIdRef.current) setConnFails((n) => n + 1);
       } finally {
-        window.clearTimeout(kill);
+        finish();
       }
     })();
 
-    refreshInflight.current = run.finally(() => {
-      if (refreshInflight.current === run) refreshInflight.current = null;
-      if (refreshQueued.current) {
-        refreshQueued.current = false;
-        const needTick = refreshQueuedTick.current;
-        refreshQueuedTick.current = false;
-        void refresh({ tick: needTick });
-      }
-    });
-    return refreshInflight.current;
-  }, [roomId, ingestChat]);
+    refreshInflight.current = marker;
+    return marker;
+  }, [roomId]);
+
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
 
   useEffect(() => {
     let client: Ably.Realtime | null = null;
@@ -712,17 +742,21 @@ export function PokerTable({
     let cancelled = false;
 
     function startPolling() {
-      // Mostly read-only so both players share one server truth.
+      if (poll || tickPoll) return;
+      // Immediate fetch — don't wait 650ms on a frozen snapshot
+      void refreshRef.current({ tick: true });
       poll = setInterval(() => {
-        void refresh({ tick: false });
+        void refreshRef.current({ tick: false });
       }, 650);
-      // Occasional tick advances bots/timeouts (CAS prevents divergent hands).
       tickPoll = setInterval(() => {
-        void refresh({ tick: true });
+        void refreshRef.current({ tick: true });
       }, 1800);
     }
 
-    async function setup() {
+    // Poll first — never block table updates on Ably token latency
+    startPolling();
+
+    async function setupAbly() {
       try {
         const tokenRes = await fetch("/api/ably/token");
         const tokenJson = await readJson<{
@@ -736,32 +770,27 @@ export function PokerTable({
             authCallback: (_, cb) => cb(null, tokenJson.tokenRequest as Ably.TokenRequest),
           });
           const channel = client.channels.get(`room:${roomId}`);
-          // Ably = state already saved — force a fresh load (don't coalesce away)
           channel.subscribe("state", () => {
-            void refresh({ tick: false, force: true });
+            void refreshRef.current({ tick: false, force: true });
           });
           channel.subscribe("chat", (message) => {
             const data = message.data as TableChatBubble;
-            if (data?.id) ingestChat(data);
+            if (data?.id) ingestChatRef.current(data);
           });
-          startPolling();
-          return;
         }
       } catch {
-        // Fall through to polling
+        // Polling already running
       }
-      if (cancelled) return;
-      startPolling();
     }
 
-    void setup();
+    void setupAbly();
     return () => {
       cancelled = true;
       if (poll) clearInterval(poll);
       if (tickPoll) clearInterval(tickPoll);
       client?.close();
     };
-  }, [roomId, refresh, ingestChat]);
+  }, [roomId]);
 
   const mySeat = useMemo(() => {
     if (!myUserId) return undefined;
@@ -877,9 +906,10 @@ export function PokerTable({
         setSecondsLeft(turnSeconds);
         return;
       }
-      // Clamp future clocks (server ahead of browser) so elapsed never goes negative
-      const started = Math.min(state.turnStartedAt, Date.now());
-      const elapsed = Math.floor((Date.now() - started) / 1000);
+      // Align with server clock (Vercel instances / browser skew was ~6–7s)
+      const now = Date.now() + clockOffsetRef.current;
+      const started = Math.min(state.turnStartedAt, now);
+      const elapsed = Math.floor((now - started) / 1000);
       setSecondsLeft(Math.max(0, turnSeconds - elapsed));
     };
     tick();
