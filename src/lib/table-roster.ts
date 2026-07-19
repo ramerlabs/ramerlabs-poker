@@ -167,16 +167,41 @@ async function rebuyBot(roomId: string, botUserId: string, buyIn: number) {
   await saveTableState(roomId, state);
 }
 
+function pickOpenSeat(
+  maxPlayers: number,
+  occupiedSeats: Iterable<number>,
+  prefer?: number | null,
+) {
+  const taken = new Set(occupiedSeats);
+  if (
+    prefer != null &&
+    prefer >= 0 &&
+    prefer < maxPlayers &&
+    !taken.has(prefer)
+  ) {
+    return prefer;
+  }
+  for (let seat = 0; seat < maxPlayers; seat += 1) {
+    if (!taken.has(seat)) return seat;
+  }
+  return null;
+}
+
 async function seatWaiter(
   roomId: string,
   userId: string,
   preferredSeat?: number | null,
   buyInAmount?: number | null,
+  /** When provided (sit path), skip an extra game-state load + roster rebuild. */
+  liveState?: Awaited<ReturnType<typeof ensureGameState>>,
 ): Promise<{ seated: boolean; reason?: string; seat?: number }> {
-  const room = await prisma.room.findUnique({
-    where: { id: roomId },
-    include: { players: true, waitlist: true },
-  });
+  const [room, user] = await Promise.all([
+    prisma.room.findUnique({
+      where: { id: roomId },
+      include: { players: true, waitlist: true },
+    }),
+    prisma.user.findUnique({ where: { id: userId } }),
+  ]);
   if (!room || room.status === "CLOSED") return { seated: false, reason: "Room closed" };
   if (room.players.some((p) => p.userId === userId)) {
     await prisma.roomWaitlist.deleteMany({ where: { roomId, userId } });
@@ -186,7 +211,6 @@ async function seatWaiter(
     return { seated: false, reason: "Room full" };
   }
 
-  const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return { seated: false, reason: "User not found" };
 
   const minBuyIn = toNumber(room.buyIn);
@@ -219,7 +243,11 @@ async function seatWaiter(
   }
 
   const prefer = preferredSeat ?? entry?.preferredSeat ?? null;
-  const seat = await nextOpenSeat(roomId, room.maxPlayers, prefer);
+  const seat = pickOpenSeat(
+    room.maxPlayers,
+    room.players.map((p) => p.seat),
+    prefer,
+  );
   if (seat == null) return { seated: false, reason: "No seat" };
 
   await prisma.$transaction([
@@ -238,9 +266,32 @@ async function seatWaiter(
     prisma.roomWaitlist.deleteMany({ where: { roomId, userId } }),
   ]);
 
+  // Fast path: patch seats in memory (sit already loaded state). Avoids
+  // ensureGameState + rebuildSeatsFromDb round-trips that made buy-in feel stuck.
+  if (liveState) {
+    const next = structuredClone(liveState);
+    if (!next.seats.some((s) => s.userId === userId)) {
+      next.seats.push({
+        userId,
+        seat,
+        stack: amount,
+        bet: 0,
+        totalBet: 0,
+        holeCards: [],
+        folded: false,
+        allIn: false,
+        sittingOut: false,
+        lastAction: null,
+      });
+      next.seats.sort((a, b) => a.seat - b.seat);
+    }
+    await saveTableState(roomId, next, { syncStacks: false });
+    return { seated: true, seat };
+  }
+
   let state = await ensureGameState(roomId);
   state = await rebuildSeatsFromDb(roomId, state);
-  await saveTableState(roomId, state);
+  await saveTableState(roomId, state, { syncStacks: false });
   return { seated: true, seat };
 }
 
@@ -251,10 +302,13 @@ export async function claimSeat(
   seat: number,
   buyInAmount?: number | null,
 ) {
-  const room = await prisma.room.findUnique({
-    where: { id: roomId },
-    include: { players: true },
-  });
+  const [room, state] = await Promise.all([
+    prisma.room.findUnique({
+      where: { id: roomId },
+      include: { players: true },
+    }),
+    ensureGameState(roomId),
+  ]);
   if (!room || room.status === "CLOSED") throw new Error("Room not found");
   if (seat < 0 || seat >= room.maxPlayers) throw new Error("Invalid seat");
   if (room.players.some((p) => p.userId === userId)) {
@@ -276,11 +330,10 @@ export async function claimSeat(
     throw new Error(`Buy-in must be at least ${minBuyIn}`);
   }
 
-  const state = await ensureGameState(roomId);
   const betweenHands = state.street === "waiting" || state.street === "complete";
 
   if (betweenHands) {
-    const result = await seatWaiter(roomId, userId, seat, amount);
+    const result = await seatWaiter(roomId, userId, seat, amount, state);
     if (!result.seated) throw new Error(result.reason || "Could not sit");
     return { seated: true as const, seat: result.seat ?? seat, waiting: false };
   }

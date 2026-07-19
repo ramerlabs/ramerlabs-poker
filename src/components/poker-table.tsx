@@ -1112,6 +1112,7 @@ export function PokerTable({
       setError(`Insufficient balance (have ${walletLeft})`);
       return;
     }
+    const seatIndex = buyInSeat;
     setBusy(true);
     setError(null);
     setHint(null);
@@ -1120,7 +1121,7 @@ export function PokerTable({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          seat: buyInSeat,
+          seat: seatIndex,
           inviteCode: inviteCode || undefined,
           buyInAmount: amount,
         }),
@@ -1132,18 +1133,20 @@ export function PokerTable({
       }>(res);
       if (!res.ok) throw new Error(json.error || "Could not sit");
       const msg = json.seated
-        ? `You sat at seat ${buyInSeat + 1} with ${amount} ${currency}.`
+        ? `You sat at seat ${seatIndex + 1} with ${amount} ${currency}.`
         : json.message ||
-          `Seat ${buyInSeat + 1} reserved — you join when this hand ends.`;
+          `Seat ${seatIndex + 1} reserved — you join when this hand ends.`;
+      // Close modal immediately — don't wait on table refresh / room reload
+      setBuyInSeat(null);
+      setBusy(false);
       setHint(msg);
       onSitResult?.(msg);
       setWalletLeft((w) => Math.max(0, w - amount));
-      setBuyInSeat(null);
-      await refresh();
-      onPlayersChanged?.();
+      void refresh({ tick: false, force: true }).then(() => {
+        onPlayersChanged?.();
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not sit");
-    } finally {
       setBusy(false);
     }
   }

@@ -191,13 +191,13 @@ export default function AdminPage() {
 
   async function setBotSkill(id: string, current: number) {
     const raw = window.prompt(
-      "Table skill hint (0–100). Live bots still use a random 30–50% each.",
+      "Bot accuracy (0–100). 0 = random, 100 = perfect play.",
       String(current),
     );
     if (raw == null) return;
     const botSkillPercent = Number(raw);
     if (!Number.isFinite(botSkillPercent) || botSkillPercent < 0 || botSkillPercent > 100) {
-      setError("Bot skill must be 0–100");
+      setError("Bot accuracy must be 0–100");
       return;
     }
     const res = await fetch("/api/admin/rooms", {
@@ -206,7 +206,7 @@ export default function AdminPage() {
       body: JSON.stringify({ id, botSkillPercent }),
     });
     if (res.ok) {
-      setMessage(`Bot skill set to ${botSkillPercent}%`);
+      setMessage(`Bot accuracy set to ${botSkillPercent}%`);
       await load();
     }
   }
@@ -532,17 +532,17 @@ export default function AdminPage() {
             </p>
           </div>
           <div>
-            <Label>Bot skill / plan %</Label>
+            <Label>Bot accuracy (0–100)</Label>
             <Input
               name="botSkillPercent"
               type="number"
-              min={30}
-              max={50}
-              defaultValue={40}
+              min={0}
+              max={100}
+              defaultValue={100}
               required
             />
             <p className="mt-1 text-[11px] text-[var(--muted)]">
-              Table default hint only — each bot rolls a random skill between 30–50%.
+              0 = plays randomly, 100 = perfect play. All bots on this table use this value.
             </p>
           </div>
           <div>
@@ -586,7 +586,7 @@ export default function AdminPage() {
                 <p className="mt-1 text-xs text-[var(--muted)]">
                   {room.smallBlind}/{room.bigBlind} · Buy-in {room.buyIn} {room.currency} ·{" "}
                   {room.playerCount}/{room.maxPlayers} seated · Target bots {room.targetBots} ·
-                  Bot skill {room.botSkillPercent ?? 50}%
+                  Bot accuracy {room.botSkillPercent ?? 50}%
                   {room.inviteCode ? ` · Invite ${room.inviteCode}` : ""}
                 </p>
               </div>
@@ -601,7 +601,7 @@ export default function AdminPage() {
                   variant="ghost"
                   onClick={() => setBotSkill(room.id, room.botSkillPercent ?? 50)}
                 >
-                  Bot skill
+                  Accuracy
                 </Button>
                 {room.status !== "CLOSED" && (
                   <Button variant="danger" onClick={() => closeTable(room.id)}>

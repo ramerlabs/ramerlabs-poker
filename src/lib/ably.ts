@@ -16,15 +16,24 @@ type AblyConfig = {
   adminEnabled: boolean;
 };
 
+let ablyConfigCache: { at: number; value: AblyConfig } | null = null;
+const ABLY_CONFIG_TTL_MS = 15_000;
+
 export async function getAblyConfig(): Promise<AblyConfig> {
+  if (ablyConfigCache && Date.now() - ablyConfigCache.at < ABLY_CONFIG_TTL_MS) {
+    return ablyConfigCache.value;
+  }
+
   if (!isEnvAblyAllowed()) {
-    return {
+    const off: AblyConfig = {
       enabled: false,
       apiKey: null,
       source: "off",
       hasKey: false,
       adminEnabled: false,
     };
+    ablyConfigCache = { at: Date.now(), value: off };
+    return off;
   }
 
   const settings = await prisma.platformSettings
@@ -40,13 +49,15 @@ export async function getAblyConfig(): Promise<AblyConfig> {
   const adminEnabled = settings?.ablyEnabled ?? true;
   const enabled = adminEnabled && hasKey;
 
-  return {
+  const value: AblyConfig = {
     enabled,
     apiKey,
     source: !adminEnabled ? "off" : dbKey ? "admin" : envKey ? "env" : "off",
     hasKey,
     adminEnabled,
   };
+  ablyConfigCache = { at: Date.now(), value };
+  return value;
 }
 
 export async function getAblyRest() {
@@ -65,7 +76,13 @@ export async function publishRoomEvent(roomId: string, name: string, data: unkno
   if (!rest) return false;
   try {
     const channel = rest.channels.get(`room:${roomId}`);
-    await channel.publish(name, data);
+    // Don't let Ably latency block game/seat API responses
+    await Promise.race([
+      channel.publish(name, data),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("ably publish timeout")), 1200),
+      ),
+    ]);
     return true;
   } catch {
     return false;

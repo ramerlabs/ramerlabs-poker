@@ -51,7 +51,8 @@ export async function POST(req: Request, { params }: Params) {
       parsed.data.seat,
       parsed.data.buyInAmount,
     );
-    await touchPresence(id, authResult.userId);
+    // Presence can finish after the client already gets the sit result
+    void touchPresence(id, authResult.userId);
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not sit";

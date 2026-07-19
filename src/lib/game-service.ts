@@ -87,7 +87,8 @@ export async function saveTableState(
     await syncStacksToDb(roomId, state);
   }
 
-  await publishRoomEvent(roomId, "state", {
+  // Notify clients without blocking the request (Ably can be slow)
+  void publishRoomEvent(roomId, "state", {
     version: saved.version,
     updatedAt: saved.updatedAt.toISOString(),
   });

@@ -11,7 +11,7 @@ function hashSeed(input: string) {
   return h;
 }
 
-/** Each bot gets a stable random skill in 30–50%. */
+/** Each bot gets a stable random skill in 30–50% — only used when state doesn't override. */
 export function botSkillPercentFor(userId: string) {
   return 30 + (hashSeed(userId) % 21);
 }
@@ -81,26 +81,26 @@ export function decideBotAction(
     return { action: "check" };
   }
 
-  const skill = botSkillPercentFor(userId) / 100;
+  const skill = (state.botSkillPercent ?? botSkillPercentFor(userId)) / 100;
   const toCall = Math.max(0, state.currentBet - seat.bet);
   const bb = Math.max(1, state.bigBlind);
   const strength = boardHandStrength(seat.holeCards, state.community);
-  const loose = 0.55 + (1 - skill) * 0.25 + (hashSeed(userId) % 20) / 100; // ~0.55–0.95
+  const loose = 0.55 + (1 - skill) * 0.25 + (hashSeed(userId) % 20) / 100;
   const roll = Math.random();
   const preflop = state.community.length === 0;
   const callInBb = toCall / bb;
 
   // ——— Free check / option to bet ———
   if (toCall === 0) {
-    // Open / stab sometimes
-    if (strength >= 0.55 && roll < 0.28 + skill * 0.15) {
+    // Open / stab based on strength
+    if (strength >= 0.55 && roll < 0.28 + skill * 0.5) {
       const raiseTo = Math.min(seat.stack + seat.bet, seat.bet + bb * (roll < 0.4 ? 3 : 2));
       if (raiseTo > state.currentBet) {
         return { action: state.currentBet > 0 ? "raise" : "bet", amount: raiseTo };
       }
     }
-    // Light bluff c-bet
-    if (strength < 0.4 && roll < 0.12) {
+    // Light bluff c-bet (only when skill isn't max)
+    if (strength < 0.4 && roll < 0.12 * (1 - skill)) {
       const raiseTo = Math.min(seat.stack + seat.bet, seat.bet + bb * 2);
       if (raiseTo > state.currentBet) {
         return { action: state.currentBet > 0 ? "raise" : "bet", amount: raiseTo };
@@ -111,21 +111,21 @@ export function decideBotAction(
 
   // ——— Facing a bet that covers us ———
   if (toCall >= seat.stack) {
-    // Call/shove often enough that pots get contested
+    // Call/shove only when hand has equity
     if (strength >= 0.35 || roll < 0.4 * loose) return { action: "allin" };
     return { action: "fold" };
   }
 
   // ——— Small price (≤ 3 BB): almost always continue ———
   if (callInBb <= 3) {
-    if (roll < 0.12 && seat.stack > toCall + state.minRaise && strength >= 0.45) {
+    if (roll < 0.12 * skill && seat.stack > toCall + state.minRaise && strength >= 0.45) {
       const raiseTo = Math.min(
         seat.stack + seat.bet,
         state.currentBet + Math.max(state.minRaise, bb * 2),
       );
       if (raiseTo > state.currentBet) return { action: "raise", amount: raiseTo };
     }
-    // Fold only ~8–15% to tiny bets
+    // Fold only when weak and skill is high (tight fold)
     if (roll < 0.08 + (1 - loose) * 0.08 && strength < 0.32) {
       return { action: "fold" };
     }
@@ -135,7 +135,7 @@ export function decideBotAction(
   // ——— Medium price (3–8 BB) ———
   if (callInBb <= 8) {
     if (strength >= 0.4 || roll < 0.65 * loose) {
-      if (roll < 0.15 && strength >= 0.55 && seat.stack > toCall + state.minRaise) {
+      if (roll < 0.15 * skill && strength >= 0.55 && seat.stack > toCall + state.minRaise) {
         const raiseTo = Math.min(
           seat.stack + seat.bet,
           state.currentBet + Math.max(state.minRaise, bb * 2),
@@ -144,14 +144,13 @@ export function decideBotAction(
       }
       return { action: "call" };
     }
-    // Still call often preflop
     if (preflop && roll < 0.55) return { action: "call" };
     return roll < 0.35 ? { action: "call" } : { action: "fold" };
   }
 
   // ——— Big bet / raise ———
   if (strength >= 0.55 || (strength >= 0.4 && roll < 0.45 * loose)) {
-    if (strength >= 0.72 && roll < 0.25) return { action: "allin" };
+    if (strength >= 0.72 && roll < 0.25 * skill) return { action: "allin" };
     return { action: "call" };
   }
   if (preflop && roll < 0.3) return { action: "call" };
