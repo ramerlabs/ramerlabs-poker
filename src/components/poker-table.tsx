@@ -365,6 +365,7 @@ export function PokerTable({
   const hadActableTurn = useRef(false);
   const voluntaryActRef = useRef(false);
   const popupOpenedAtRef = useRef(0);
+  const actedAtRef = useRef(0);
   const timeoutNoticeHand = useRef<number | null>(null);
 
   useEffect(() => {
@@ -735,7 +736,7 @@ export function PokerTable({
     });
   }, [winnerVisible, state.handNumber]);
 
-  // Countdown from server turnStartedAt
+  // Countdown from server turnStartedAt — frozen after user acts
   useEffect(() => {
     if (waiting || state.actionSeat == null || !state.turnStartedAt) {
       setSecondsLeft(turnSeconds);
@@ -743,6 +744,11 @@ export function PokerTable({
     }
 
     const tick = () => {
+      // If we already acted, freeze the timer display at the value when we clicked
+      if (actingRef.current && actedAtRef.current > 0) {
+        setSecondsLeft(actedAtRef.current);
+        return;
+      }
       const elapsed = Math.floor((Date.now() - (state.turnStartedAt ?? Date.now())) / 1000);
       setSecondsLeft(Math.max(0, turnSeconds - elapsed));
     };
@@ -851,6 +857,11 @@ export function PokerTable({
     }
     if (!fromSystem) actingRef.current = true;
     setBusy(true);
+    // Freeze the timer at its current value — the click already went through
+    setSecondsLeft((prev) => {
+      actedAtRef.current = prev;
+      return prev;
+    });
     setError(null);
     setHint(null);
     if (!fromSystem) voluntaryActRef.current = true;
