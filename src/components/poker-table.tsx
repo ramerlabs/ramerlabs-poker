@@ -317,6 +317,12 @@ export function PokerTable({
   const [narrow, setNarrow] = useState(false);
   const [state, setState] = useState(initialState);
   const [players, setPlayers] = useState(initialPlayers);
+
+  // Sync state when the parent re-fetches and passes new props (e.g. after leave/sit)
+  useEffect(() => {
+    setState(initialState);
+    setPlayers(initialPlayers);
+  }, [initialState, initialPlayers]);
   const [raiseTo, setRaiseTo] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
