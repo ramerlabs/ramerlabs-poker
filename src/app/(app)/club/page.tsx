@@ -120,6 +120,7 @@ export default function ClubPage() {
         name: String(form.get("name") || "").trim() || undefined,
         note: String(form.get("note") || "").trim() || undefined,
         initialCredits: Number(form.get("initialCredits") || 0) || 0,
+        initialRealCredits: Number(form.get("initialRealCredits") || 0) || 0,
       }),
     });
     const json = await res.json();
@@ -144,6 +145,7 @@ export default function ClubPage() {
         userId: String(form.get("userId")),
         amount: Number(form.get("amount")),
         note: String(form.get("note") || "").trim() || undefined,
+        balanceKind: String(form.get("balanceKind") || "FREE"),
       }),
     });
     const json = await res.json();
@@ -284,7 +286,8 @@ export default function ClubPage() {
         <Panel className="p-6">
           <h2 className="text-xl font-semibold">Create client account</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Creates a login for your player. Optional starting credits come from your club balance.
+            Creates a login for your player. Optional starting free/real credits come from your
+            club balances.
           </p>
           <form onSubmit={createClient} className="mt-4 space-y-3">
             <div>
@@ -299,9 +302,21 @@ export default function ClubPage() {
               <Label>Display name</Label>
               <Input name="name" maxLength={64} placeholder="Optional" />
             </div>
-            <div>
-              <Label>Initial credits</Label>
-              <Input name="initialCredits" type="number" min={0} step="1" defaultValue={0} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label>Initial free credits</Label>
+                <Input name="initialCredits" type="number" min={0} step="1" defaultValue={0} />
+              </div>
+              <div>
+                <Label>Initial real credits</Label>
+                <Input
+                  name="initialRealCredits"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  defaultValue={0}
+                />
+              </div>
             </div>
             <div>
               <Label>Note</Label>
@@ -316,7 +331,7 @@ export default function ClubPage() {
         <Panel className="p-6">
           <h2 className="text-xl font-semibold">Assign credits</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Deducts from club balance and adds to the client’s credits wallet.
+            Deducts from club free or real balance and adds to the client’s matching wallet.
           </p>
           {clients.length === 0 ? (
             <p className="mt-4 text-sm text-[var(--muted)]">Create a client first.</p>
@@ -333,15 +348,31 @@ export default function ClubPage() {
                 >
                   {clients.map((c) => (
                     <option key={c.user.id} value={c.user.id}>
-                      {c.user.name || c.user.email} — {c.user.creditsBalance.toLocaleString()}{" "}
-                      credits
+                      {c.user.name || c.user.email} — free{" "}
+                      {c.user.creditsBalance.toLocaleString()} · real{" "}
+                      {(c.user.realMoneyBalance ?? 0).toLocaleString()}
                     </option>
                   ))}
                 </select>
               </div>
               <div>
+                <Label>Credit type</Label>
+                <select
+                  name="balanceKind"
+                  defaultValue="FREE"
+                  className="w-full rounded-xl border border-[var(--line)] bg-[#0a1220] px-3.5 py-2.5 text-sm"
+                >
+                  <option value="FREE">
+                    Free credits (club {(club.balance ?? 0).toLocaleString()})
+                  </option>
+                  <option value="REAL">
+                    Real credits (club {(club.realBalance ?? 0).toLocaleString()})
+                  </option>
+                </select>
+              </div>
+              <div>
                 <Label>Amount</Label>
-                <Input name="amount" type="number" min={1} step="1" required />
+                <Input name="amount" type="number" min={0.01} step="0.01" required />
               </div>
               <div>
                 <Label>Note</Label>
@@ -586,8 +617,13 @@ export default function ClubPage() {
                   {c.note ? ` · ${c.note}` : ""}
                 </div>
               </div>
-              <div className="text-sm text-[var(--gold-soft)]">
-                {c.user.creditsBalance.toLocaleString()} credits
+              <div className="text-right text-sm">
+                <div className="text-[var(--gold-soft)]">
+                  Free {c.user.creditsBalance.toLocaleString()}
+                </div>
+                <div className="text-[var(--success)]">
+                  Real {(c.user.realMoneyBalance ?? 0).toLocaleString()}
+                </div>
               </div>
             </div>
           ))}
