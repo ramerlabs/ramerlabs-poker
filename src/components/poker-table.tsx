@@ -357,6 +357,7 @@ export function PokerTable({
   const attentionLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hadActableTurn = useRef(false);
   const voluntaryActRef = useRef(false);
+  const popupOpenedAtRef = useRef(0);
   const timeoutNoticeHand = useRef<number | null>(null);
 
   useEffect(() => {
@@ -973,10 +974,12 @@ export function PokerTable({
         voluntaryActRef.current = false;
         setAttentionAcked(false);
         setAttentionOpen(true);
+        popupOpenedAtRef.current = Date.now();
         void unlockAudio();
         playSfx("alert");
       } else if (!attentionOpen) {
         setAttentionOpen(true);
+        popupOpenedAtRef.current = Date.now();
         void unlockAudio();
         playSfx("alert");
       }
@@ -1016,9 +1019,13 @@ export function PokerTable({
     state.handNumber,
   ]);
 
-  // Auto-fold when timer hits 0 on your turn — popup shows timed-out state
+  // Auto-fold when timer hits 0 on your turn — but give 1.5s grace so the
+  // popup actually appears before the fold fires (latency can eat the clock).
   useEffect(() => {
-    if (!canActNow || busy || secondsLeft > 0 || autoFolding.current) return;
+    if (!canActNow) return;
+    // Grace window: we must have had the popup open for at least 1.5s before folding
+    const timeSincePopup = attentionOpen ? Date.now() - popupOpenedAtRef.current : 0;
+    if (secondsLeft > 0 || busy || autoFolding.current || timeSincePopup < 1500) return;
     autoFolding.current = true;
     setTimeoutNotice(true);
     setAttentionLeaving(false);
@@ -1027,7 +1034,7 @@ export function PokerTable({
     playSfx("timeout");
     void act("fold", undefined, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [secondsLeft, canActNow, busy]);
+  }, [secondsLeft, canActNow, busy, attentionOpen]);
 
   // Repeat alert until muted or turn ends / timed out
   useEffect(() => {
