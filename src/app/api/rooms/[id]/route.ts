@@ -5,6 +5,7 @@ import { toNumber } from "@/lib/utils";
 import { getPublicGameState } from "@/lib/game-service";
 import { isBotUserId } from "@/lib/poker/bot";
 import { purgeStalePlayers } from "@/lib/table-roster";
+import { getRecentTableChats } from "@/lib/table-chat";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -76,6 +77,7 @@ export async function GET(req: Request, { params }: Params) {
   const waitPosition =
     room.waitlist.findIndex((w) => w.userId === authResult.userId) + 1 || null;
   const isAdmin = authResult.role === "ADMIN";
+  const chats = await getRecentTableChats(id);
 
   return NextResponse.json({
     room: light
@@ -125,5 +127,6 @@ export async function GET(req: Request, { params }: Params) {
             : null,
         },
     game,
+    chats,
   });
 }

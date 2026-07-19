@@ -87,6 +87,7 @@ model User {
   transactions      Transaction[]
   supportTickets    SupportTicket[]
   supportMessages   SupportMessage[]
+  roomChats         RoomChatMessage[]
 
   @@index([email])
 }
@@ -117,6 +118,7 @@ model Room {
   waitlist    RoomWaitlist[]
   gameState   GameState?
   rakeEvents  RakeEvent[]
+  chatMessages RoomChatMessage[]
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
@@ -186,6 +188,21 @@ model RoomPlayer {
   @@unique([roomId, seat])
   @@index([userId])
   @@index([roomId, lastSeenAt])
+}
+
+/// Short-lived table chat — bubbles beside seats; pruned after a few seconds.
+model RoomChatMessage {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    String
+  seat      Int
+  text      String
+  createdAt DateTime @default(now())
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model Transaction {

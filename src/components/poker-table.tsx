@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSession } from "next-auth/react";
 import * as Ably from "ably";
 import { PlayingCard } from "@/components/playing-card";
@@ -42,6 +42,15 @@ type DealThrow = {
   toX: string;
   toY: string;
   delay: number;
+};
+
+type TableChatBubble = {
+  id: string;
+  userId: string;
+  seat: number;
+  text: string;
+  name: string;
+  createdAt: string;
 };
 
 type ConnLevel = "good" | "fair" | "poor" | "offline";
@@ -322,6 +331,10 @@ export function PokerTable({
   const [attentionAcked, setAttentionAcked] = useState(false);
   const [attentionLeaving, setAttentionLeaving] = useState(false);
   const [timeoutNotice, setTimeoutNotice] = useState(false);
+  const [chatBubbles, setChatBubbles] = useState<TableChatBubble[]>([]);
+  const [chatText, setChatText] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
+  const seenChatIds = useRef(new Set<string>());
   const lastActionKey = useRef<string>("");
   const lastHandRef = useRef(0);
   const lastStreetRef = useRef(state.street);
@@ -504,6 +517,18 @@ export function PokerTable({
 
   const refreshInflight = useRef<Promise<void> | null>(null);
 
+  const ingestChat = useCallback((msg: TableChatBubble) => {
+    if (!msg?.id || seenChatIds.current.has(msg.id)) return;
+    const age = Date.now() - new Date(msg.createdAt).getTime();
+    if (Number.isFinite(age) && age > 5_500) return;
+    seenChatIds.current.add(msg.id);
+    setChatBubbles((prev) => [...prev, msg]);
+    const remain = Number.isFinite(age) ? Math.max(900, 5_000 - age) : 5_000;
+    window.setTimeout(() => {
+      setChatBubbles((prev) => prev.filter((b) => b.id !== msg.id));
+    }, remain);
+  }, []);
+
   const refresh = useCallback(async (opts?: { tick?: boolean; force?: boolean }) => {
     if (refreshInflight.current && !opts?.force) {
       return refreshInflight.current;
@@ -524,11 +549,15 @@ export function PokerTable({
         const json = await readJson<{
           game?: { state?: PublicTableState };
           room?: { players?: RoomPlayer[] };
+          chats?: TableChatBubble[];
         }>(res);
         setLatencyMs(Math.min(ms, 9999));
         setConnFails(0);
         if (json.game?.state) setState(json.game.state);
         if (json.room?.players) setPlayers(json.room.players);
+        if (json.chats?.length) {
+          for (const chat of json.chats) ingestChat(chat);
+        }
       } catch {
         setConnFails((n) => n + 1);
       }
@@ -538,7 +567,7 @@ export function PokerTable({
       if (refreshInflight.current === run) refreshInflight.current = null;
     });
     return refreshInflight.current;
-  }, [roomId]);
+  }, [roomId, ingestChat]);
 
   useEffect(() => {
     let client: Ably.Realtime | null = null;
@@ -563,6 +592,10 @@ export function PokerTable({
           channel.subscribe("state", () => {
             void refresh({ tick: false });
           });
+          channel.subscribe("chat", (message) => {
+            const data = message.data as TableChatBubble;
+            if (data?.id) ingestChat(data);
+          });
           poll = setInterval(() => {
             void refresh({ tick: true });
           }, 700);
@@ -583,7 +616,7 @@ export function PokerTable({
       if (poll) clearInterval(poll);
       client?.close();
     };
-  }, [roomId, refresh]);
+  }, [roomId, refresh, ingestChat]);
 
   const mySeat = useMemo(() => {
     if (!myUserId) return undefined;
@@ -885,6 +918,31 @@ export function PokerTable({
     setAudioUnlocked(isAudioUnlocked());
     playSfx("click");
     setTimeout(() => playSfx("chip"), 80);
+  }
+
+  async function sendChat(e?: FormEvent) {
+    e?.preventDefault();
+    if (!mySeat || chatBusy) return;
+    const text = chatText.trim();
+    if (!text) return;
+    setChatBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const json = await readJson<{ error?: string; message?: TableChatBubble }>(res);
+      if (!res.ok) throw new Error(json.error || "Chat failed");
+      if (json.message) ingestChat(json.message);
+      setChatText("");
+      playSfx("click");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Chat failed");
+    } finally {
+      setChatBusy(false);
+    }
   }
 
   // Your turn: always open action popup + alert
@@ -1607,6 +1665,9 @@ export function PokerTable({
             seat.holeCards.length > 0
               ? seat.holeCards
               : Array.from({ length: seat.cardCount || 2 }, () => "hidden");
+          const seatChat = chatBubbles.filter((b) => b.userId === seat.userId).slice(-1)[0];
+          const bubbleSide =
+            Number.parseFloat(pos.left) >= 50 ? "right" : "left";
 
           return (
             <div
@@ -1620,10 +1681,14 @@ export function PokerTable({
               )}
               style={{ left: pos.left, top: pos.top }}
             >
-              {isMe && <div className="seat-you-badge">You</div>}
+              {isMe && !seat.folded && <div className="seat-you-badge">You</div>}
+              {isMe && seat.folded && state.street !== "waiting" && !showWinner && (
+                <div className="seat-you-badge seat-you-badge-fold">Folded</div>
+              )}
               {(seat.lastAction || seat.folded || seat.allIn) &&
                 !showWinner &&
-                state.street !== "waiting" && (
+                state.street !== "waiting" &&
+                !(isMe && seat.folded) && (
                   <div
                     className={cn(
                       "seat-action-badge",
@@ -1650,6 +1715,15 @@ export function PokerTable({
               )}
 
               <div className="seat-avatar-wrap">
+                {seatChat && (
+                  <div
+                    className={cn("seat-chat-bubble", `is-${bubbleSide}`)}
+                    key={seatChat.id}
+                    role="status"
+                  >
+                    {seatChat.text}
+                  </div>
+                )}
                 <PlayerAvatar userId={seat.userId} name={displayName} size="md" />
                 {isDealer && (
                   <span
@@ -1671,6 +1745,9 @@ export function PokerTable({
                   {isMe ? "You" : displayName}
                 </div>
                 <div className="seat-nameplate-stack">{seat.stack.toLocaleString()}</div>
+                {seat.folded && state.street !== "waiting" && !showWinner && (
+                  <div className="seat-fold-tag">Folded</div>
+                )}
               </div>
 
               {active && !waiting && !showWinner && (
@@ -1731,6 +1808,23 @@ export function PokerTable({
         )}
         </div>
       </div>
+
+      {mySeat ? (
+        <form className="table-chat-dock" onSubmit={(e) => void sendChat(e)}>
+          <Input
+            value={chatText}
+            maxLength={80}
+            placeholder="Table chat…"
+            className="table-chat-input"
+            onChange={(e) => setChatText(e.target.value)}
+            disabled={chatBusy}
+            aria-label="Table chat message"
+          />
+          <Button type="submit" disabled={chatBusy || !chatText.trim()} className="!px-3 !py-2 text-xs">
+            Send
+          </Button>
+        </form>
+      ) : null}
     </div>
   );
 }
