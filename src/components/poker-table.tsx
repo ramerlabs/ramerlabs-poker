@@ -645,6 +645,7 @@ export function PokerTable({
         const res = await fetch(`/api/rooms/${roomId}${qs}`, {
           cache: "no-store",
           headers: { "Cache-Control": "no-cache" },
+          signal: AbortSignal.timeout(8_000),
         });
         const ms = Math.round(performance.now() - started);
         // A newer refresh was started (should not happen with queueing, but be safe)
