@@ -574,8 +574,9 @@ export default function AdminPage() {
               Add credits
             </h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Top up club float for{" "}
-              <span className="text-[var(--text)]">{fundModal.name}</span>
+              Top up the <span className="text-[var(--text)]">club float wallet</span> for{" "}
+              <span className="text-[var(--text)]">{fundModal.name}</span> — not the owner’s
+              personal system wallet.
             </p>
             <div className="mt-3 flex flex-wrap gap-3 text-xs text-[var(--muted)]">
               <span>
@@ -605,9 +606,9 @@ export default function AdminPage() {
                         : "rounded-xl border border-[var(--line)] bg-black/20 px-3 py-3 text-sm text-[var(--muted)] hover:bg-white/5"
                     }
                   >
-                    Free credits
+                    Free club credits
                     <span className="mt-1 block text-xs font-normal opacity-80">
-                      Client credits wallet
+                      Club float → assign to members
                     </span>
                   </button>
                   <button
@@ -619,9 +620,9 @@ export default function AdminPage() {
                         : "rounded-xl border border-[var(--line)] bg-black/20 px-3 py-3 text-sm text-[var(--muted)] hover:bg-white/5"
                     }
                   >
-                    Real credits
+                    Real club credits
                     <span className="mt-1 block text-xs font-normal opacity-80">
-                      Client cash wallet
+                      Club float → assign to members
                     </span>
                   </button>
                 </div>

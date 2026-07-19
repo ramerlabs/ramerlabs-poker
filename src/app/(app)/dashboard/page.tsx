@@ -32,7 +32,9 @@ export default async function DashboardPage() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <Panel className="p-6">
-          <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Credits</div>
+          <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+            System credits
+          </div>
           <div className="mt-2 text-4xl font-semibold text-[var(--gold-soft)]">
             {toNumber(user?.creditsBalance).toLocaleString()}
           </div>
@@ -40,7 +42,7 @@ export default async function DashboardPage() {
         </Panel>
         <Panel className="p-6">
           <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-            Real cash ({cashCurrency})
+            System cash ({cashCurrency})
           </div>
           <div className="mt-2 text-4xl font-semibold text-[var(--success)]">
             {formatMoney(toNumber(user?.realMoneyBalance), cashCurrency)}

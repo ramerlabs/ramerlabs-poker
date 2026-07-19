@@ -8,8 +8,8 @@ import { formatMoney } from "@/lib/utils";
 type Membership = {
   clubId: string;
   clubName: string;
-  clubBalance: number;
-  clubRealBalance: number;
+  memberCreditsBalance: number;
+  memberRealMoneyBalance: number;
   owner: { name: string | null; email: string };
 };
 
@@ -20,8 +20,6 @@ type Props = {
 export function ClubCashoutPanel({ cashCurrency }: Props) {
   const toast = useToast();
   const [memberships, setMemberships] = useState<Membership[]>([]);
-  const [creditsBalance, setCreditsBalance] = useState(0);
-  const [realMoneyBalance, setRealMoneyBalance] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [kind, setKind] = useState<"FREE" | "REAL">("FREE");
@@ -38,8 +36,6 @@ export function ClubCashoutPanel({ cashCurrency }: Props) {
     const json = await res.json();
     const list = (json.memberships ?? []) as Membership[];
     setMemberships(list);
-    setCreditsBalance(Number(json.creditsBalance) || 0);
-    setRealMoneyBalance(Number(json.realMoneyBalance) || 0);
     setClubId((prev) => prev || list[0]?.clubId || "");
     setLoaded(true);
   }, []);
@@ -51,7 +47,8 @@ export function ClubCashoutPanel({ cashCurrency }: Props) {
   async function cashOut(e: FormEvent) {
     e.preventDefault();
     const value = Number(amount);
-    if (!clubId) {
+    const selected = memberships.find((m) => m.clubId === clubId) ?? memberships[0];
+    if (!selected) {
       toast.error("Select a club");
       return;
     }
@@ -59,12 +56,13 @@ export function ClubCashoutPanel({ cashCurrency }: Props) {
       toast.error("Enter a positive amount");
       return;
     }
-    const max = kind === "FREE" ? creditsBalance : realMoneyBalance;
+    const max =
+      kind === "FREE" ? selected.memberCreditsBalance : selected.memberRealMoneyBalance;
     if (value > max) {
       toast.error(
         kind === "FREE"
-          ? `You only have ${creditsBalance.toLocaleString()} free credits`
-          : `You only have ${formatMoney(realMoneyBalance, cashCurrency)}`,
+          ? `You only have ${selected.memberCreditsBalance.toLocaleString()} free club credits`
+          : `You only have ${formatMoney(selected.memberRealMoneyBalance, cashCurrency)} real club credits`,
       );
       return;
     }
@@ -75,7 +73,7 @@ export function ClubCashoutPanel({ cashCurrency }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          clubId,
+          clubId: selected.clubId,
           amount: value,
           balanceKind: kind,
           note: "Dashboard cashout",
@@ -99,15 +97,19 @@ export function ClubCashoutPanel({ cashCurrency }: Props) {
   if (!loaded || memberships.length === 0) return null;
 
   const selected = memberships.find((m) => m.clubId === clubId) ?? memberships[0];
-  const walletMax = kind === "FREE" ? creditsBalance : realMoneyBalance;
+  const walletMax =
+    kind === "FREE"
+      ? selected.memberCreditsBalance
+      : selected.memberRealMoneyBalance;
 
   return (
     <Panel className="p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold">Your club</h2>
+          <h2 className="text-xl font-semibold">Your club wallet</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Club float balances and cash out credits back to the club owner.
+            Separate from your system Credits / Cash above. Use this wallet on club tables, or cash
+            out back to the club owner.
           </p>
         </div>
         <Badge tone="gold">{selected.clubName}</Badge>
@@ -134,18 +136,18 @@ export function ClubCashoutPanel({ cashCurrency }: Props) {
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-white/5 bg-black/20 px-4 py-3">
           <div className="text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
-            Club free balance
+            Club free credits
           </div>
           <div className="mt-1 text-2xl font-semibold text-[var(--gold-soft)]">
-            {(selected.clubBalance ?? 0).toLocaleString()}
+            {(selected.memberCreditsBalance ?? 0).toLocaleString()}
           </div>
         </div>
         <div className="rounded-xl border border-white/5 bg-black/20 px-4 py-3">
           <div className="text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
-            Club real balance
+            Club real credits
           </div>
           <div className="mt-1 text-2xl font-semibold text-[var(--success)]">
-            {(selected.clubRealBalance ?? 0).toLocaleString()}
+            {formatMoney(selected.memberRealMoneyBalance ?? 0, cashCurrency)}
           </div>
         </div>
       </div>
@@ -167,9 +169,9 @@ export function ClubCashoutPanel({ cashCurrency }: Props) {
                   : "rounded-xl border border-[var(--line)] bg-black/20 px-3 py-2.5 text-sm text-[var(--muted)] hover:bg-white/5"
               }
             >
-              Free credits
+              Free club credits
               <span className="mt-0.5 block text-xs font-normal opacity-80">
-                You have {creditsBalance.toLocaleString()}
+                You have {selected.memberCreditsBalance.toLocaleString()}
               </span>
             </button>
             <button
@@ -181,9 +183,9 @@ export function ClubCashoutPanel({ cashCurrency }: Props) {
                   : "rounded-xl border border-[var(--line)] bg-black/20 px-3 py-2.5 text-sm text-[var(--muted)] hover:bg-white/5"
               }
             >
-              Real credits
+              Real club credits
               <span className="mt-0.5 block text-xs font-normal opacity-80">
-                You have {formatMoney(realMoneyBalance, cashCurrency)}
+                You have {formatMoney(selected.memberRealMoneyBalance, cashCurrency)}
               </span>
             </button>
           </div>

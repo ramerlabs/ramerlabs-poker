@@ -177,13 +177,17 @@ model Club {
 
 /// Players managed by a club owner (created or linked by the owner).
 model ClubClient {
-  id        String   @id @default(cuid())
-  clubId    String
-  userId    String
-  note      String?
-  createdAt DateTime @default(now())
-  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String   @id @default(cuid())
+  clubId           String
+  userId           String
+  /// Club free-credit wallet (separate from User.creditsBalance).
+  creditsBalance   Decimal  @default(0) @db.Decimal(18, 2)
+  /// Club real/cash wallet (separate from User.realMoneyBalance).
+  realMoneyBalance Decimal  @default(0) @db.Decimal(18, 2)
+  note             String?
+  createdAt        DateTime @default(now())
+  club             Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([clubId, userId])
   @@index([userId])

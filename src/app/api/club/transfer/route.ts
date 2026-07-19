@@ -9,11 +9,11 @@ const schema = z.object({
   userId: z.string().min(1),
   amount: z.number().positive().max(1_000_000),
   note: z.string().max(120).optional(),
-  /** FREE → club.balance → creditsBalance; REAL → club.realBalance → realMoneyBalance */
+  /** FREE → club.balance → ClubClient.creditsBalance; REAL → club.realBalance → ClubClient.realMoneyBalance */
   balanceKind: z.enum(["FREE", "REAL"]).optional().default("FREE"),
 });
 
-/** Assign free or real credits from club float → client wallet. */
+/** Assign free or real credits from club float → member club wallet. */
 export async function POST(req: Request) {
   const authResult = await requireClubOwner();
   if ("error" in authResult) return authResult.error;
@@ -62,17 +62,13 @@ export async function POST(req: Request) {
         throw new Error("INSUFFICIENT");
       }
 
-      const user = await tx.user.update({
-        where: { id: userId },
+      const client = await tx.clubClient.update({
+        where: { id: membership.id },
         data: isReal
           ? { realMoneyBalance: { increment: new Prisma.Decimal(amount) } }
           : { creditsBalance: { increment: new Prisma.Decimal(amount) } },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          creditsBalance: true,
-          realMoneyBalance: true,
+        include: {
+          user: { select: { id: true, email: true, name: true } },
         },
       });
 
@@ -85,7 +81,9 @@ export async function POST(req: Request) {
           kind: "ASSIGN",
           note:
             note?.trim() ||
-            (isReal ? "Assigned real credits" : "Assigned free credits"),
+            (isReal
+              ? "Assigned real credits → club member wallet"
+              : "Assigned free credits → club member wallet"),
         },
       });
 
@@ -96,11 +94,11 @@ export async function POST(req: Request) {
 
       return {
         user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          creditsBalance: toNumber(user.creditsBalance),
-          realMoneyBalance: toNumber(user.realMoneyBalance),
+          id: client.user.id,
+          email: client.user.email,
+          name: client.user.name,
+          creditsBalance: toNumber(client.creditsBalance),
+          realMoneyBalance: toNumber(client.realMoneyBalance),
         },
         clubBalance: toNumber(club?.balance ?? 0),
         clubRealBalance: toNumber(club?.realBalance ?? 0),
@@ -109,7 +107,7 @@ export async function POST(req: Request) {
       };
     });
 
-    const label = isReal ? "real credits" : "free credits";
+    const label = isReal ? "real club credits" : "free club credits";
     return NextResponse.json({
       success: true,
       ...result,

@@ -286,8 +286,8 @@ export default function ClubPage() {
         <Panel className="p-6">
           <h2 className="text-xl font-semibold">Create client account</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Creates a login for your player. Optional starting free/real credits come from your
-            club balances.
+            Creates a login for your player. Optional starting free/real credits go to their club
+            member wallet (from your club float).
           </p>
           <form onSubmit={createClient} className="mt-4 space-y-3">
             <div>
@@ -331,7 +331,8 @@ export default function ClubPage() {
         <Panel className="p-6">
           <h2 className="text-xl font-semibold">Assign credits</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Deducts from club free or real balance and adds to the client’s matching wallet.
+            Moves from your club float into the client’s club member wallet (not their system
+            wallet).
           </p>
           {clients.length === 0 ? (
             <p className="mt-4 text-sm text-[var(--muted)]">Create a client first.</p>
@@ -619,10 +620,10 @@ export default function ClubPage() {
               </div>
               <div className="text-right text-sm">
                 <div className="text-[var(--gold-soft)]">
-                  Free {c.user.creditsBalance.toLocaleString()}
+                  Club free {c.user.creditsBalance.toLocaleString()}
                 </div>
                 <div className="text-[var(--success)]">
-                  Real {(c.user.realMoneyBalance ?? 0).toLocaleString()}
+                  Club real {(c.user.realMoneyBalance ?? 0).toLocaleString()}
                 </div>
               </div>
             </div>

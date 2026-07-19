@@ -111,11 +111,32 @@ export async function GET(req: Request, { params }: Params) {
         },
       });
 
-  const walletBalance = meUser
-    ? room.type === "FREE"
-      ? toNumber(meUser.creditsBalance)
-      : toNumber(meUser.realMoneyBalance)
-    : 0;
+  let walletBalance = 0;
+  let walletSource: "club" | "system" = "system";
+  if (!light && meUser) {
+    if (room.clubId) {
+      const membership = await prisma.clubClient.findUnique({
+        where: {
+          clubId_userId: { clubId: room.clubId, userId: authResult.userId },
+        },
+        select: { creditsBalance: true, realMoneyBalance: true },
+      });
+      if (membership) {
+        walletSource = "club";
+        walletBalance =
+          room.type === "FREE"
+            ? toNumber(membership.creditsBalance)
+            : toNumber(membership.realMoneyBalance);
+      } else {
+        walletBalance = 0;
+      }
+    } else {
+      walletBalance =
+        room.type === "FREE"
+          ? toNumber(meUser.creditsBalance)
+          : toNumber(meUser.realMoneyBalance);
+    }
+  }
 
   return NextResponse.json({
     room: light
@@ -185,6 +206,7 @@ export async function GET(req: Request, { params }: Params) {
             ? (room.waitlist.find((w) => w.userId === authResult.userId)?.preferredSeat ?? null)
             : null,
           walletBalance,
+          walletSource,
           currency: room.currency,
           minBuyIn: toNumber(room.buyIn),
         },

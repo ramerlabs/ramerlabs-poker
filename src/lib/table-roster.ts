@@ -8,6 +8,7 @@ import {
   saveTableState,
 } from "@/lib/game-service";
 import { toNumber } from "@/lib/utils";
+import { creditPlayWallet, debitPlayWallet, resolvePlayWallet } from "@/lib/club-wallet";
 import { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { customAlphabet } from "nanoid";
@@ -195,13 +196,10 @@ async function seatWaiter(
   /** When provided (sit path), skip an extra game-state load + roster rebuild. */
   liveState?: Awaited<ReturnType<typeof ensureGameState>>,
 ): Promise<{ seated: boolean; reason?: string; seat?: number }> {
-  const [room, user] = await Promise.all([
-    prisma.room.findUnique({
-      where: { id: roomId },
-      include: { players: true, waitlist: true },
-    }),
-    prisma.user.findUnique({ where: { id: userId } }),
-  ]);
+  const room = await prisma.room.findUnique({
+    where: { id: roomId },
+    include: { players: true, waitlist: true },
+  });
   if (!room || room.status === "CLOSED") return { seated: false, reason: "Room closed" };
   if (room.players.some((p) => p.userId === userId)) {
     await prisma.roomWaitlist.deleteMany({ where: { roomId, userId } });
@@ -211,17 +209,31 @@ async function seatWaiter(
     return { seated: false, reason: "Room full" };
   }
 
+  let wallet;
+  try {
+    wallet = await resolvePlayWallet(room, userId);
+  } catch (e) {
+    return {
+      seated: false,
+      reason: e instanceof Error ? e.message : "Could not resolve wallet",
+    };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { currentCurrency: true },
+  });
   if (!user) return { seated: false, reason: "User not found" };
 
   const minBuyIn = toNumber(room.buyIn);
-  const balanceField = room.type === "FREE" ? "creditsBalance" : "realMoneyBalance";
-  const balance = toNumber(user[balanceField]);
+  const balance = wallet.balance;
   if (balance < minBuyIn) {
     await prisma.roomWaitlist.deleteMany({ where: { roomId, userId } });
-    return { seated: false, reason: `Need at least ${minBuyIn} to join` };
+    const where =
+      wallet.source === "club" ? "club wallet" : "system wallet";
+    return { seated: false, reason: `Need at least ${minBuyIn} in your ${where}` };
   }
   if (room.type === "REAL" && user.currentCurrency !== room.currency) {
-    // Keep user label in sync with platform/room currency (no longer blocks seating).
     await prisma.user.update({
       where: { id: userId },
       data: { currentCurrency: room.currency },
@@ -242,7 +254,7 @@ async function seatWaiter(
   if (amount > balance) {
     return {
       seated: false,
-      reason: `Insufficient balance (have ${balance}, need ${amount})`,
+      reason: `Insufficient ${wallet.source === "club" ? "club" : "system"} balance (have ${balance}, need ${amount})`,
     };
   }
 
@@ -254,21 +266,25 @@ async function seatWaiter(
   );
   if (seat == null) return { seated: false, reason: "No seat" };
 
-  await prisma.$transaction([
-    prisma.user.update({
-      where: { id: userId },
-      data: { [balanceField]: new Prisma.Decimal(balance - amount) },
-    }),
-    prisma.roomPlayer.create({
-      data: {
-        roomId,
-        userId,
-        seat,
-        stack: new Prisma.Decimal(amount),
-      },
-    }),
-    prisma.roomWaitlist.deleteMany({ where: { roomId, userId } }),
-  ]);
+  try {
+    await prisma.$transaction(async (tx) => {
+      await debitPlayWallet(wallet, userId, amount, tx);
+      await tx.roomPlayer.create({
+        data: {
+          roomId,
+          userId,
+          seat,
+          stack: new Prisma.Decimal(amount),
+        },
+      });
+      await tx.roomWaitlist.deleteMany({ where: { roomId, userId } });
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === "INSUFFICIENT") {
+      return { seated: false, reason: "Insufficient balance" };
+    }
+    throw e;
+  }
 
   // Fast path: patch seats in memory (sit already loaded state). Avoids
   // ensureGameState + rebuildSeatsFromDb round-trips that made buy-in feel stuck.
@@ -515,15 +531,25 @@ async function cashOutSeatedPlayer(roomId: string, userId: string) {
   const state = await ensureGameState(roomId);
   const live = state.seats.find((s) => s.userId === userId);
   const stack = live ? live.stack : toNumber(player.stack);
-  const balanceField = room.type === "FREE" ? "creditsBalance" : "realMoneyBalance";
 
-  await prisma.$transaction([
-    prisma.roomPlayer.delete({ where: { id: player.id } }),
-    prisma.user.update({
-      where: { id: userId },
-      data: { [balanceField]: { increment: new Prisma.Decimal(stack) } },
-    }),
-  ]);
+  let wallet;
+  try {
+    wallet = await resolvePlayWallet(room, userId);
+  } catch {
+    // Fallback: if membership was removed mid-session, return to system wallet
+    wallet = {
+      source: "system" as const,
+      kind: (room.type === "FREE" ? "FREE" : "REAL") as "FREE" | "REAL",
+      balance: 0,
+    };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.roomPlayer.delete({ where: { id: player.id } });
+    if (stack > 0) {
+      await creditPlayWallet(wallet, userId, stack, tx);
+    }
+  });
 
   let next = await ensureGameState(roomId);
   next = await rebuildSeatsFromDb(roomId, next);

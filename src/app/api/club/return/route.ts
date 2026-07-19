@@ -9,12 +9,13 @@ const schema = z.object({
   clubId: z.string().min(1),
   amount: z.number().positive().max(1_000_000),
   note: z.string().max(120).optional(),
-  /** FREE → creditsBalance → club.balance; REAL → realMoneyBalance → club.realBalance */
+  /** FREE → ClubClient.creditsBalance → club.balance; REAL → ClubClient.realMoneyBalance → club.realBalance */
   balanceKind: z.enum(["FREE", "REAL"]).optional().default("FREE"),
 });
 
 /**
- * Club member returns credits to the club float.
+ * Club member returns credits from their club wallet back to the club float.
+ * Does not touch the system (User) wallet.
  */
 export async function POST(req: Request) {
   const authResult = await requireUser();
@@ -49,19 +50,13 @@ export async function POST(req: Request) {
     );
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { creditsBalance: true, realMoneyBalance: true, email: true, name: true },
-  });
-  if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
-  }
-
-  const wallet = isReal ? toNumber(user.realMoneyBalance) : toNumber(user.creditsBalance);
-  if (wallet < amount) {
+  const memberWallet = isReal
+    ? toNumber(membership.realMoneyBalance)
+    : toNumber(membership.creditsBalance);
+  if (memberWallet < amount) {
     return NextResponse.json(
       {
-        error: `Insufficient ${isReal ? "real credits" : "free credits"} (have ${wallet.toLocaleString()})`,
+        error: `Insufficient club ${isReal ? "real" : "free"} credits (have ${memberWallet.toLocaleString()})`,
       },
       { status: 400 },
     );
@@ -69,9 +64,9 @@ export async function POST(req: Request) {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const debited = await tx.user.updateMany({
+      const debited = await tx.clubClient.updateMany({
         where: {
-          id: userId,
+          id: membership.id,
           ...(isReal
             ? { realMoneyBalance: { gte: new Prisma.Decimal(amount) } }
             : { creditsBalance: { gte: new Prisma.Decimal(amount) } }),
@@ -100,26 +95,24 @@ export async function POST(req: Request) {
           kind: "RETURN",
           note:
             note?.trim() ||
-            (isReal ? "Returned real credits" : "Returned free credits"),
+            (isReal ? "Returned real club credits" : "Returned free club credits"),
         },
       });
 
-      const [updatedUser, club] = await Promise.all([
-        tx.user.findUnique({
-          where: { id: userId },
+      const [updatedClient, club] = await Promise.all([
+        tx.clubClient.findUnique({
+          where: { id: membership.id },
           select: { creditsBalance: true, realMoneyBalance: true },
         }),
         tx.club.findUnique({
           where: { id: clubId },
-          select: { balance: true, realBalance: true, name: true },
+          select: { name: true },
         }),
       ]);
 
       return {
-        creditsBalance: toNumber(updatedUser?.creditsBalance ?? 0),
-        realMoneyBalance: toNumber(updatedUser?.realMoneyBalance ?? 0),
-        clubBalance: toNumber(club?.balance ?? 0),
-        clubRealBalance: toNumber(club?.realBalance ?? 0),
+        memberCreditsBalance: toNumber(updatedClient?.creditsBalance ?? 0),
+        memberRealMoneyBalance: toNumber(updatedClient?.realMoneyBalance ?? 0),
         clubName: club?.name ?? membership.club.name,
         amount,
         balanceKind,
@@ -127,7 +120,7 @@ export async function POST(req: Request) {
       };
     });
 
-    const label = isReal ? "real credits" : "free credits";
+    const label = isReal ? "real club credits" : "free club credits";
     return NextResponse.json({
       success: true,
       ...result,
@@ -136,7 +129,7 @@ export async function POST(req: Request) {
   } catch (e) {
     if (e instanceof Error && e.message === "INSUFFICIENT") {
       return NextResponse.json(
-        { error: `Insufficient ${isReal ? "real credits" : "free credits"}` },
+        { error: `Insufficient club ${isReal ? "real" : "free"} credits` },
         { status: 400 },
       );
     }
@@ -145,7 +138,7 @@ export async function POST(req: Request) {
   }
 }
 
-/** Clubs the signed-in user belongs to as a client (for cashout / return forms). */
+/** Clubs the signed-in user belongs to (member wallets only — never club float). */
 export async function GET() {
   const authResult = await requireUser();
   if ("error" in authResult) return authResult.error;
@@ -157,8 +150,6 @@ export async function GET() {
         select: {
           id: true,
           name: true,
-          balance: true,
-          realBalance: true,
           owner: { select: { name: true, email: true } },
         },
       },
@@ -166,20 +157,14 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
   });
 
-  const user = await prisma.user.findUnique({
-    where: { id: authResult.userId },
-    select: { creditsBalance: true, realMoneyBalance: true },
-  });
-
   return NextResponse.json({
     memberships: memberships.map((m) => ({
       clubId: m.club.id,
       clubName: m.club.name,
-      clubBalance: toNumber(m.club.balance),
-      clubRealBalance: toNumber(m.club.realBalance),
       owner: m.club.owner,
+      /** Member club wallets — not the club float. */
+      memberCreditsBalance: toNumber(m.creditsBalance),
+      memberRealMoneyBalance: toNumber(m.realMoneyBalance),
     })),
-    creditsBalance: toNumber(user?.creditsBalance ?? 0),
-    realMoneyBalance: toNumber(user?.realMoneyBalance ?? 0),
   });
 }

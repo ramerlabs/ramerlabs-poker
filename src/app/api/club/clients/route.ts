@@ -12,9 +12,9 @@ const createSchema = z.object({
   password: z.string().min(6).max(72),
   name: z.string().min(1).max(64).optional(),
   note: z.string().max(120).optional(),
-  /** Optional initial free credits from club.balance. */
+  /** Optional initial free credits from club.balance → ClubClient.creditsBalance */
   initialCredits: z.number().min(0).max(1_000_000).optional(),
-  /** Optional initial real credits from club.realBalance. */
+  /** Optional initial real credits from club.realBalance → ClubClient.realMoneyBalance */
   initialRealCredits: z.number().min(0).max(1_000_000).optional(),
 });
 
@@ -30,8 +30,6 @@ export async function GET() {
           id: true,
           name: true,
           email: true,
-          creditsBalance: true,
-          realMoneyBalance: true,
           createdAt: true,
         },
       },
@@ -44,13 +42,16 @@ export async function GET() {
       id: c.id,
       note: c.note,
       createdAt: c.createdAt,
+      creditsBalance: toNumber(c.creditsBalance),
+      realMoneyBalance: toNumber(c.realMoneyBalance),
       user: {
         id: c.user.id,
         name: c.user.name,
         email: c.user.email,
-        creditsBalance: toNumber(c.user.creditsBalance),
-        realMoneyBalance: toNumber(c.user.realMoneyBalance),
         createdAt: c.user.createdAt,
+        // Club member wallets (not system)
+        creditsBalance: toNumber(c.creditsBalance),
+        realMoneyBalance: toNumber(c.realMoneyBalance),
       },
     })),
     clubBalance: authResult.club.balance,
@@ -123,22 +124,21 @@ export async function POST(req: Request) {
         if (funded.count !== 1) throw new Error("INSUFFICIENT_REAL");
       }
 
+      // System wallet starts at 0 — club funds go to ClubClient wallets only.
       const user = await tx.user.create({
         data: {
           email,
           name: parsed.data.name?.trim() || email.split("@")[0],
           passwordHash,
           role: "USER",
-          creditsBalance: new Prisma.Decimal(initialFree),
-          realMoneyBalance: new Prisma.Decimal(initialReal),
+          creditsBalance: new Prisma.Decimal(0),
+          realMoneyBalance: new Prisma.Decimal(0),
           currentCurrency,
         },
         select: {
           id: true,
           email: true,
           name: true,
-          creditsBalance: true,
-          realMoneyBalance: true,
         },
       });
 
@@ -147,6 +147,8 @@ export async function POST(req: Request) {
           clubId: authResult.club.id,
           userId: user.id,
           note: parsed.data.note?.trim() || null,
+          creditsBalance: new Prisma.Decimal(initialFree),
+          realMoneyBalance: new Prisma.Decimal(initialReal),
         },
       });
 
@@ -158,7 +160,7 @@ export async function POST(req: Request) {
             actorId: authResult.userId,
             amount: new Prisma.Decimal(initialFree),
             kind: "ASSIGN",
-            note: "Initial free credits on account create",
+            note: "Initial free credits → club member wallet",
           },
         });
       }
@@ -170,7 +172,7 @@ export async function POST(req: Request) {
             actorId: authResult.userId,
             amount: new Prisma.Decimal(initialReal),
             kind: "ASSIGN",
-            note: "Initial real credits on account create",
+            note: "Initial real credits → club member wallet",
           },
         });
       }
@@ -191,7 +193,7 @@ export async function POST(req: Request) {
     const parts: string[] = [];
     if (initialFree > 0) parts.push(`${initialFree.toLocaleString()} free`);
     if (initialReal > 0) parts.push(`${initialReal.toLocaleString()} real`);
-    const funded = parts.length ? ` with ${parts.join(" + ")} credits` : "";
+    const funded = parts.length ? ` with ${parts.join(" + ")} club credits` : "";
 
     return NextResponse.json(
       {
@@ -201,8 +203,8 @@ export async function POST(req: Request) {
             id: result.user.id,
             email: result.user.email,
             name: result.user.name,
-            creditsBalance: toNumber(result.user.creditsBalance),
-            realMoneyBalance: toNumber(result.user.realMoneyBalance),
+            creditsBalance: initialFree,
+            realMoneyBalance: initialReal,
           },
         },
         clubBalance: result.clubBalance,

@@ -37,6 +37,8 @@ type WalletData = {
 type ClubMembership = {
   clubId: string;
   clubName: string;
+  memberCreditsBalance: number;
+  memberRealMoneyBalance: number;
   owner: { name: string | null; email: string };
 };
 
@@ -158,6 +160,7 @@ export default function WalletPage() {
       body: JSON.stringify({
         clubId: String(form.get("clubId")),
         amount: Number(form.get("amount")),
+        balanceKind: String(form.get("balanceKind") || "FREE"),
         note: String(form.get("note") || "").trim() || undefined,
       }),
     });
@@ -250,13 +253,10 @@ export default function WalletPage() {
 
       {memberships.length > 0 && (
         <Panel className="p-6">
-          <h2 className="text-xl font-semibold">Return credits to club</h2>
+          <h2 className="text-xl font-semibold">Return club wallet to club</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Send credits from your wallet back to your club’s balance. You have{" "}
-            <span className="text-[var(--gold-soft)]">
-              {data.wallet.creditsBalance.toLocaleString()}
-            </span>{" "}
-            credits.
+            Sends from your club member wallet back to the club float — not from your system
+            Credits / Cash.
           </p>
           <form onSubmit={returnToClub} className="mt-4 space-y-3">
             <div>
@@ -269,30 +269,35 @@ export default function WalletPage() {
               >
                 {memberships.map((m) => (
                   <option key={m.clubId} value={m.clubId}>
-                    {m.clubName} — owner {m.owner.email}
+                    {m.clubName} — free {m.memberCreditsBalance.toLocaleString()} · real{" "}
+                    {m.memberRealMoneyBalance.toLocaleString()}
                   </option>
                 ))}
+              </select>
+            </div>
+            <div>
+              <Label>Credit type</Label>
+              <select
+                name="balanceKind"
+                defaultValue="FREE"
+                className="w-full rounded-xl border border-[var(--line)] bg-[#0a1220] px-3.5 py-2.5 text-sm"
+              >
+                <option value="FREE">Free club credits</option>
+                <option value="REAL">Real club credits</option>
               </select>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label>Amount</Label>
-                <Input
-                  name="amount"
-                  type="number"
-                  min={1}
-                  step="1"
-                  required
-                  max={data.wallet.creditsBalance}
-                />
+                <Input name="amount" type="number" min={0.01} step="0.01" required />
               </div>
               <div>
                 <Label>Note (optional)</Label>
-                <Input name="note" maxLength={120} placeholder="Returning unused credits" />
+                <Input name="note" maxLength={120} placeholder="Returning unused club credits" />
               </div>
             </div>
-            <Button type="submit" disabled={returnBusy || data.wallet.creditsBalance < 1}>
-              {returnBusy ? "Sending…" : "Return credits to club"}
+            <Button type="submit" disabled={returnBusy}>
+              {returnBusy ? "Sending…" : "Return to club"}
             </Button>
           </form>
         </Panel>
