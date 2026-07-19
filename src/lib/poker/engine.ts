@@ -616,6 +616,7 @@ export function toPublicState(state: PokerTableState, viewerId?: string): Public
     streetHoldUntil: state.streetHoldUntil ?? null,
     pendingCommunityDeals: state.pendingCommunityDeals ?? 0,
     botSkillPercent: state.botSkillPercent ?? 50,
+    handEndedAt: state.handEndedAt ?? null,
     deckCount: state.deck.length,
     seats: state.seats.map((seat) => {
       const reveal =
