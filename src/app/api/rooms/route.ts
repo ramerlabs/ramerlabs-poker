@@ -3,6 +3,7 @@ import { z } from "zod";
 import { customAlphabet } from "nanoid";
 import { Prisma, RoomType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getOwnedClub } from "@/lib/club";
 import { getPlatformSettings, tickOpenRooms } from "@/lib/game-service";
 import { requireLicenseOptionalUser, requireUser } from "@/lib/session";
 import { toNumber } from "@/lib/utils";
@@ -26,19 +27,23 @@ export async function GET() {
   const viewerId = authResult.userId;
   const isAdmin = authResult.role === "ADMIN";
 
-  // Keep bot-only tables dealing in the background when lobby is open
   await tickOpenRooms(6);
+
+  const myClub = viewerId ? await getOwnedClub(viewerId) : null;
 
   const rooms = await prisma.room.findMany({
     where: { status: { not: "CLOSED" } },
     include: {
       players: { select: { id: true, userId: true, seat: true } },
       creator: { select: { id: true, name: true, email: true } },
+      club: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: "desc" },
   });
 
   return NextResponse.json({
+    myClub,
+    canCreateTables: Boolean(myClub),
     rooms: rooms.map((room) => {
       const canSeeInvite =
         Boolean(viewerId) && (room.creatorId === viewerId || isAdmin);
@@ -48,6 +53,7 @@ export async function GET() {
         smallBlind: toNumber(room.smallBlind),
         bigBlind: toNumber(room.bigBlind),
         inviteCode: room.isPrivate && canSeeInvite ? room.inviteCode : null,
+        club: room.club,
       };
     }),
   });
@@ -57,9 +63,23 @@ export async function POST(req: Request) {
   const authResult = await requireUser();
   if ("error" in authResult) return authResult.error;
 
+  const club = await getOwnedClub(authResult.userId);
+  if (!club) {
+    return NextResponse.json(
+      {
+        error:
+          "Only club owners can create tables. Ask a platform admin to make you a club owner.",
+      },
+      { status: 403 },
+    );
+  }
+
   const parsed = createSchema.safeParse(await req.json());
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid room payload", details: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid room payload", details: parsed.error.flatten() },
+      { status: 400 },
+    );
   }
 
   const data = parsed.data;
@@ -67,15 +87,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Big blind must exceed small blind" }, { status: 400 });
   }
 
-  let currency = data.currency ?? (data.type === "FREE" ? "CREDITS" : "USD");
-
+  let currency: string;
   if (data.type === "REAL") {
-    const user = await prisma.user.findUnique({ where: { id: authResult.userId } });
-    currency = data.currency ?? user?.currentCurrency ?? "USD";
-    const config = await prisma.currencyConfig.findUnique({ where: { code: currency } });
-    if (!config?.enabled) {
-      return NextResponse.json({ error: `Currency ${currency} is not enabled` }, { status: 400 });
-    }
+    const { getGlobalCurrency } = await import("@/lib/currency");
+    currency = await getGlobalCurrency();
   } else {
     currency = "CREDITS";
   }
@@ -100,6 +115,7 @@ export async function POST(req: Request) {
       isPrivate,
       inviteCode: isPrivate ? inviteCode() : null,
       creatorId: authResult.userId,
+      clubId: club.id,
     },
   });
 
@@ -110,6 +126,7 @@ export async function POST(req: Request) {
         buyIn: toNumber(room.buyIn),
         smallBlind: toNumber(room.smallBlind),
         bigBlind: toNumber(room.bigBlind),
+        club: { id: club.id, name: club.name },
       },
     },
     { status: 201 },

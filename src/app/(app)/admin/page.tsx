@@ -56,6 +56,7 @@ type AdminRoom = {
   inviteCode: string | null;
   status: string;
   playerCount: number;
+  club: { id: string; name: string } | null;
 };
 
 type AdminTicket = {
@@ -79,6 +80,29 @@ type AblySettings = {
   keySource: string;
 };
 
+type AdminCoupon = {
+  id: string;
+  code: string;
+  kind: "CREDITS" | "CASH";
+  amount: number;
+  currency: string | null;
+  maxClaims: number;
+  claimCount: number;
+  expiresAt: string | null;
+  active: boolean;
+  note: string | null;
+  createdAt: string;
+};
+
+type AdminClub = {
+  id: string;
+  name: string;
+  active: boolean;
+  roomCount: number;
+  owner: { id: string; name: string | null; email: string };
+  createdAt: string;
+};
+
 export default function AdminPage() {
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [rooms, setRooms] = useState<AdminRoom[]>([]);
@@ -90,9 +114,17 @@ export default function AdminPage() {
   const [ticketCategory, setTicketCategory] = useState("");
   const [ably, setAbly] = useState<AblySettings | null>(null);
   const [ablyKeyInput, setAblyKeyInput] = useState("");
+  const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
+  const [clubs, setClubs] = useState<AdminClub[]>([]);
+  const [couponKind, setCouponKind] = useState<"CREDITS" | "CASH">("CREDITS");
+  const [globalCurrency, setGlobalCurrency] = useState("USD");
+  const [currencyOptions, setCurrencyOptions] = useState<{ code: string; name: string }[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [creatingCoupon, setCreatingCoupon] = useState(false);
+  const [creatingClub, setCreatingClub] = useState(false);
+  const [savingCurrency, setSavingCurrency] = useState(false);
 
   async function loadTickets(filters?: {
     status?: string;
@@ -110,18 +142,26 @@ export default function AdminPage() {
 
   async function load() {
     try {
-      const [curRes, rakeRes, roomsRes, ablyRes] = await Promise.all([
-        fetch("/api/admin/currencies"),
-        fetch("/api/admin/rake"),
-        fetch("/api/admin/rooms"),
-        fetch("/api/admin/ably"),
-      ]);
-      const [curJson, rakeJson, roomsJson, ablyJson] = await Promise.all([
-        curRes.json().catch(() => ({})),
-        rakeRes.json().catch(() => ({})),
-        roomsRes.json().catch(() => ({})),
-        ablyRes.json().catch(() => ({})),
-      ]);
+      const [curRes, rakeRes, roomsRes, ablyRes, couponRes, globalCurRes, clubsRes] =
+        await Promise.all([
+          fetch("/api/admin/currencies"),
+          fetch("/api/admin/rake"),
+          fetch("/api/admin/rooms"),
+          fetch("/api/admin/ably"),
+          fetch("/api/admin/coupons"),
+          fetch("/api/admin/currency"),
+          fetch("/api/admin/clubs"),
+        ]);
+      const [curJson, rakeJson, roomsJson, ablyJson, couponJson, globalCurJson, clubsJson] =
+        await Promise.all([
+          curRes.json().catch(() => ({})),
+          rakeRes.json().catch(() => ({})),
+          roomsRes.json().catch(() => ({})),
+          ablyRes.json().catch(() => ({})),
+          couponRes.json().catch(() => ({})),
+          globalCurRes.json().catch(() => ({})),
+          clubsRes.json().catch(() => ({})),
+        ]);
       if (!curRes.ok && !roomsRes.ok) {
         setError(curJson.error || roomsJson.error || "Admin access required");
         return;
@@ -137,6 +177,12 @@ export default function AdminPage() {
         setAbly(ablyJson.settings);
         setAblyKeyInput("");
       }
+      if (couponRes.ok) setCoupons(couponJson.coupons ?? []);
+      if (globalCurRes.ok) {
+        setGlobalCurrency(globalCurJson.globalCurrency ?? "USD");
+        setCurrencyOptions(globalCurJson.options ?? []);
+      }
+      if (clubsRes.ok) setClubs(clubsJson.clubs ?? []);
       await loadTickets({
         status: ticketStatus,
         priority: ticketPriority,
@@ -157,13 +203,20 @@ export default function AdminPage() {
     setMessage(null);
     setError(null);
     const form = new FormData(e.currentTarget);
+    const clubId = String(form.get("clubId") || "");
+    if (!clubId) {
+      setCreating(false);
+      setError("Select a club for this table");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
     const res = await fetch("/api/admin/rooms", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: String(form.get("name")),
         type: String(form.get("type")),
-        currency: String(form.get("currency") || "USD"),
+        clubId,
         buyIn: Number(form.get("buyIn")),
         smallBlind: Number(form.get("smallBlind")),
         bigBlind: Number(form.get("bigBlind")),
@@ -177,12 +230,100 @@ export default function AdminPage() {
     setCreating(false);
     if (!res.ok) {
       setError(json.error || "Could not create table");
+      window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
     setMessage(
-      `Table “${json.room.name}” created with ${json.room.botsSeeded ?? 0} bot(s)`,
+      `Table “${json.room.name}” created successfully` +
+        (json.room.club ? ` for ${json.room.club.name}` : "") +
+        (json.room.botsSeeded ? ` with ${json.room.botsSeeded} bot(s)` : "") +
+        (json.room.inviteCode ? ` · invite ${json.room.inviteCode}` : ""),
     );
     e.currentTarget.reset();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    await load();
+  }
+
+  async function createClub(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setCreatingClub(true);
+    setMessage(null);
+    setError(null);
+    const form = new FormData(e.currentTarget);
+    const res = await fetch("/api/admin/clubs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: String(form.get("name")),
+        ownerEmail: String(form.get("ownerEmail")),
+      }),
+    });
+    const json = await res.json();
+    setCreatingClub(false);
+    if (!res.ok) {
+      setError(json.error || "Could not create club");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    setMessage(json.message);
+    e.currentTarget.reset();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    await load();
+  }
+
+  async function reassignClubOwner(id: string, currentEmail: string) {
+    const ownerEmail = window.prompt("New owner email", currentEmail);
+    if (!ownerEmail || ownerEmail.trim().toLowerCase() === currentEmail.toLowerCase()) return;
+    const res = await fetch("/api/admin/clubs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, ownerEmail: ownerEmail.trim() }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      setError(json.error || "Could not reassign owner");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    setMessage(json.message);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    await load();
+  }
+
+  async function toggleClub(id: string, active: boolean) {
+    const res = await fetch("/api/admin/clubs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, active: !active }),
+    });
+    if (res.ok) {
+      setMessage(`Club ${!active ? "activated" : "deactivated"}`);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      await load();
+    }
+  }
+
+  async function saveGlobalCurrency(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setSavingCurrency(true);
+    setMessage(null);
+    setError(null);
+    const form = new FormData(e.currentTarget);
+    const res = await fetch("/api/admin/currency", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currency: String(form.get("currency")) }),
+    });
+    const json = await res.json();
+    setSavingCurrency(false);
+    if (!res.ok) {
+      setError(json.error || "Could not set platform currency");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    setGlobalCurrency(json.globalCurrency);
+    setMessage(json.message);
+    window.scrollTo({ top: 0, behavior: "smooth" });
     await load();
   }
 
@@ -301,6 +442,61 @@ export default function AdminPage() {
     setMessage("Rake settings saved — applies to new REAL rooms");
   }
 
+  async function createCoupon(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setCreatingCoupon(true);
+    setMessage(null);
+    setError(null);
+    const form = new FormData(e.currentTarget);
+    const customCode = String(form.get("code") || "").trim();
+    const expiresRaw = String(form.get("expiresAt") || "").trim();
+    const res = await fetch("/api/admin/coupons", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: String(form.get("kind")),
+        amount: Number(form.get("amount")),
+        maxClaims: Number(form.get("maxClaims") || 1),
+        code: customCode || undefined,
+        expiresAt: expiresRaw ? new Date(expiresRaw).toISOString() : null,
+        note: String(form.get("note") || "").trim() || undefined,
+      }),
+    });
+    const json = await res.json();
+    setCreatingCoupon(false);
+    if (!res.ok) {
+      setError(json.error || "Could not create coupon");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    setMessage(`Coupon ${json.coupon.code} created`);
+    e.currentTarget.reset();
+    setCouponKind("CREDITS");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    await load();
+  }
+
+  async function toggleCoupon(id: string, active: boolean) {
+    const res = await fetch("/api/admin/coupons", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, active: !active }),
+    });
+    if (res.ok) {
+      setMessage(`Coupon ${!active ? "activated" : "deactivated"}`);
+      await load();
+    }
+  }
+
+  async function copyCouponCode(code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+      setMessage(`Copied ${code}`);
+    } catch {
+      setMessage(code);
+    }
+  }
+
   async function saveAbly(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
@@ -341,6 +537,134 @@ export default function AdminPage() {
           Create branded tables, manage currencies, and track house rake.
         </p>
       </div>
+
+      {(message || error) && (
+        <div
+          role="status"
+          className={`sticky top-2 z-20 rounded-xl px-4 py-3 text-sm shadow-lg ${
+            error
+              ? "border border-[rgba(179,58,74,0.4)] bg-[rgba(179,58,74,0.18)]"
+              : "border border-[rgba(62,207,142,0.45)] bg-[rgba(62,207,142,0.14)]"
+          }`}
+        >
+          {error || message}
+        </div>
+      )}
+
+      <Panel className="p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">Platform currency</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Global cash currency for deposits, withdrawals, cash coupons, and REAL tables.
+              Currently <span className="text-[var(--gold-soft)]">{globalCurrency}</span>.
+            </p>
+          </div>
+          <Badge tone="gold">{globalCurrency}</Badge>
+        </div>
+        <form onSubmit={saveGlobalCurrency} className="mt-4 flex flex-wrap items-end gap-3">
+          <div className="min-w-[200px] flex-1">
+            <Label>Currency</Label>
+            <select
+              name="currency"
+              defaultValue={globalCurrency}
+              key={globalCurrency}
+              className="w-full rounded-xl border border-[var(--line)] bg-[#0a1220] px-3.5 py-2.5 text-sm"
+            >
+              {(currencyOptions.length
+                ? currencyOptions
+                : currencies.filter((c) => c.enabled).map((c) => ({ code: c.code, name: c.name }))
+              ).map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code} — {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Button type="submit" disabled={savingCurrency}>
+            {savingCurrency ? "Saving…" : "Set platform currency"}
+          </Button>
+        </form>
+      </Panel>
+
+      <Panel className="p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">Clubs</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Only admins can make a player a club owner. Only club owners can create tables.
+            </p>
+          </div>
+          <Badge tone="gold">{clubs.length} clubs</Badge>
+        </div>
+
+        <form
+          onSubmit={createClub}
+          className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3"
+        >
+          <div>
+            <Label>Club name</Label>
+            <Input name="name" required placeholder="RamerLabs Manila Club" maxLength={64} />
+          </div>
+          <div>
+            <Label>Owner email</Label>
+            <Input
+              name="ownerEmail"
+              type="email"
+              required
+              placeholder="player@example.com"
+            />
+          </div>
+          <div className="flex items-end">
+            <Button type="submit" disabled={creatingClub}>
+              {creatingClub ? "Creating…" : "Create club & assign owner"}
+            </Button>
+          </div>
+        </form>
+
+        <div className="mt-6 space-y-2">
+          {clubs.length === 0 && (
+            <p className="text-sm text-[var(--muted)]">
+              No clubs yet — create one and assign a registered player as owner.
+            </p>
+          )}
+          {clubs.map((c) => (
+            <div
+              key={c.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/5 bg-black/20 px-3 py-3"
+            >
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold">{c.name}</span>
+                  <Badge tone={c.active ? "green" : "muted"}>
+                    {c.active ? "Active" : "Off"}
+                  </Badge>
+                </div>
+                <div className="mt-1 text-xs text-[var(--muted)]">
+                  Owner: {c.owner.name || c.owner.email} ({c.owner.email}) · {c.roomCount}{" "}
+                  table(s)
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => void reassignClubOwner(c.id, c.owner.email)}
+                >
+                  Change owner
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => void toggleClub(c.id, c.active)}
+                >
+                  {c.active ? "Deactivate" : "Activate"}
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
 
       <Panel className="p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -405,6 +729,117 @@ export default function AdminPage() {
             <Button type="submit">Save Ably settings</Button>
           </form>
         )}
+      </Panel>
+
+      <Panel className="p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">Coupons</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Generate free-credit or real-cash codes for players to claim in Wallet.
+            </p>
+          </div>
+          <Badge tone="gold">{coupons.length} codes</Badge>
+        </div>
+
+        <form
+          onSubmit={createCoupon}
+          className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3"
+        >
+          <div>
+            <Label>Reward type</Label>
+            <select
+              name="kind"
+              value={couponKind}
+              onChange={(e) => setCouponKind(e.target.value as "CREDITS" | "CASH")}
+              className="w-full rounded-xl border border-[var(--line)] bg-[#0a1220] px-3.5 py-2.5 text-sm"
+            >
+              <option value="CREDITS">Free credits</option>
+              <option value="CASH">Real cash</option>
+            </select>
+          </div>
+          <div>
+            <Label>Amount</Label>
+            <Input name="amount" type="number" step="0.01" min={0.01} defaultValue={100} required />
+          </div>
+          {couponKind === "CASH" ? (
+            <div className="flex items-end">
+              <p className="rounded-xl border border-[var(--line)] bg-[#0a1220] px-3.5 py-2.5 text-sm text-[var(--muted)]">
+                Pays in platform currency:{" "}
+                <span className="text-[var(--gold-soft)]">{globalCurrency}</span>
+              </p>
+            </div>
+          ) : null}
+          <div>
+            <Label>Max claims</Label>
+            <Input name="maxClaims" type="number" min={1} defaultValue={1} required />
+          </div>
+          <div>
+            <Label>Custom code (optional)</Label>
+            <Input name="code" placeholder="Auto-generated if empty" maxLength={32} />
+          </div>
+          <div>
+            <Label>Expires (optional)</Label>
+            <Input name="expiresAt" type="datetime-local" />
+          </div>
+          <div className="md:col-span-2 xl:col-span-3">
+            <Label>Note (optional)</Label>
+            <Input name="note" placeholder="Promo, stream giveaway, etc." maxLength={200} />
+          </div>
+          <div className="md:col-span-2 xl:col-span-3">
+            <Button type="submit" disabled={creatingCoupon}>
+              {creatingCoupon ? "Creating…" : "Generate coupon"}
+            </Button>
+          </div>
+        </form>
+
+        <div className="mt-6 space-y-2">
+          {coupons.length === 0 && (
+            <p className="text-sm text-[var(--muted)]">No coupons yet.</p>
+          )}
+          {coupons.map((c) => (
+            <div
+              key={c.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/5 bg-black/20 px-3 py-3"
+            >
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void copyCouponCode(c.code)}
+                    className="font-mono text-sm font-semibold text-[var(--gold-soft)] hover:underline"
+                    title="Copy code"
+                  >
+                    {c.code}
+                  </button>
+                  <Badge tone={c.kind === "CREDITS" ? "gold" : "green"}>
+                    {c.kind === "CREDITS" ? "Credits" : "Cash"}
+                  </Badge>
+                  <Badge tone={c.active ? "green" : "muted"}>
+                    {c.active ? "Active" : "Off"}
+                  </Badge>
+                </div>
+                <div className="mt-1 text-xs text-[var(--muted)]">
+                  {c.kind === "CREDITS"
+                    ? `${c.amount.toLocaleString()} credits`
+                    : `${c.amount} ${c.currency}`}{" "}
+                  · {c.claimCount}/{c.maxClaims} claimed
+                  {c.expiresAt
+                    ? ` · expires ${new Date(c.expiresAt).toLocaleString()}`
+                    : ""}
+                  {c.note ? ` · ${c.note}` : ""}
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => void toggleCoupon(c.id, c.active)}
+              >
+                {c.active ? "Deactivate" : "Activate"}
+              </Button>
+            </div>
+          ))}
+        </div>
       </Panel>
 
       <Panel className="p-6">
@@ -507,13 +942,39 @@ export default function AdminPage() {
           <div>
             <h2 className="text-xl font-semibold">Tables</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Add as many tables as you want. Each shows the RamerLabs brand on the felt.
+              Create a table for a club (credited to the club owner). Club owners can also create
+              tables from Rooms.
             </p>
           </div>
           <Badge tone="gold">{openRooms.length} open</Badge>
         </div>
 
         <form onSubmit={createTable} className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="md:col-span-2 xl:col-span-3">
+            <Label>Club</Label>
+            <select
+              name="clubId"
+              required
+              defaultValue=""
+              className="w-full rounded-xl border border-[var(--line)] bg-[#0a1220] px-3.5 py-2.5 text-sm"
+            >
+              <option value="" disabled>
+                Select club…
+              </option>
+              {clubs
+                .filter((c) => c.active)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} — {c.owner.email}
+                  </option>
+                ))}
+            </select>
+            {clubs.filter((c) => c.active).length === 0 && (
+              <p className="mt-1 text-xs text-[var(--crimson)]">
+                Create an active club above before adding tables.
+              </p>
+            )}
+          </div>
           <div className="md:col-span-2 xl:col-span-3">
             <Label>Table name</Label>
             <Input name="name" required placeholder="RamerLabs VIP Lounge" maxLength={64} />
@@ -526,12 +987,8 @@ export default function AdminPage() {
               className="w-full rounded-xl border border-[var(--line)] bg-[#0a1220] px-3.5 py-2.5 text-sm"
             >
               <option value="FREE">FREE (Credits)</option>
-              <option value="REAL">REAL (Cash)</option>
+              <option value="REAL">REAL (Cash — {globalCurrency})</option>
             </select>
-          </div>
-          <div>
-            <Label>Currency (REAL)</Label>
-            <Input name="currency" placeholder="USD or PHP" defaultValue="USD" />
           </div>
           <div>
             <Label>Max players</Label>
@@ -604,6 +1061,7 @@ export default function AdminPage() {
                   <Badge tone={room.status === "CLOSED" ? "muted" : "green"}>{room.status}</Badge>
                 </div>
                 <p className="mt-1 text-xs text-[var(--muted)]">
+                  {room.club ? `${room.club.name} · ` : ""}
                   {room.smallBlind}/{room.bigBlind} · Buy-in {room.buyIn} {room.currency} ·{" "}
                   {room.playerCount}/{room.maxPlayers} seated · Target bots {room.targetBots} ·
                   Bot accuracy {room.botSkillPercent ?? 50}% · Chat {room.chatEnabled ? "ON" : "OFF"}
@@ -781,18 +1239,6 @@ export default function AdminPage() {
           </div>
         </form>
       </Panel>
-
-      {(message || error) && (
-        <div
-          className={`rounded-xl px-4 py-3 text-sm ${
-            error
-              ? "border border-[rgba(179,58,74,0.4)] bg-[rgba(179,58,74,0.12)]"
-              : "border border-[rgba(62,207,142,0.35)] bg-[rgba(62,207,142,0.08)]"
-          }`}
-        >
-          {error || message}
-        </div>
-      )}
     </div>
   );
 }

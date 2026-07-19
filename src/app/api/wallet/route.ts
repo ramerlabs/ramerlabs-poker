@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getGlobalCurrencyConfig } from "@/lib/currency";
 import { requireUser } from "@/lib/session";
 import { toNumber } from "@/lib/utils";
 
@@ -15,41 +16,49 @@ export async function GET() {
       name: true,
       creditsBalance: true,
       realMoneyBalance: true,
-      currentCurrency: true,
       role: true,
     },
   });
 
   if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-  const transactions = await prisma.transaction.findMany({
-    where: { userId: user.id },
-    orderBy: { createdAt: "desc" },
-    take: 20,
-  });
-
-  const currencies = await prisma.currencyConfig.findMany({
-    where: { enabled: true },
-    orderBy: { code: "asc" },
-  });
+  const [transactions, globalConfig] = await Promise.all([
+    prisma.transaction.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    }),
+    getGlobalCurrencyConfig(),
+  ]);
 
   return NextResponse.json({
     wallet: {
       creditsBalance: toNumber(user.creditsBalance),
       realMoneyBalance: toNumber(user.realMoneyBalance),
-      currentCurrency: user.currentCurrency,
+      currentCurrency: globalConfig.code,
       email: user.email,
       name: user.name,
       role: user.role,
     },
-    currencies: currencies.map((c) => ({
-      code: c.code,
-      name: c.name,
-      usdtAddress: c.usdtAddress,
-      gcashMerchantId: c.gcashMerchantId,
-      minDeposit: toNumber(c.minDeposit),
-      minWithdrawal: toNumber(c.minWithdrawal),
-    })),
+    currency: {
+      code: globalConfig.code,
+      name: globalConfig.name,
+      usdtAddress: globalConfig.usdtAddress,
+      gcashMerchantId: globalConfig.gcashMerchantId,
+      minDeposit: globalConfig.minDeposit,
+      minWithdrawal: globalConfig.minWithdrawal,
+    },
+    /** @deprecated use `currency` — kept for older clients */
+    currencies: [
+      {
+        code: globalConfig.code,
+        name: globalConfig.name,
+        usdtAddress: globalConfig.usdtAddress,
+        gcashMerchantId: globalConfig.gcashMerchantId,
+        minDeposit: globalConfig.minDeposit,
+        minWithdrawal: globalConfig.minWithdrawal,
+      },
+    ],
     transactions: transactions.map((t) => ({
       ...t,
       amount: toNumber(t.amount),

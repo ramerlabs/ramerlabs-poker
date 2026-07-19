@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { prisma } from "@/lib/prisma";
+import { getGlobalCurrencyConfig } from "@/lib/currency";
 import { requireUser } from "@/lib/session";
 import { toNumber } from "@/lib/utils";
 
@@ -24,15 +25,15 @@ export async function POST(req: Request) {
   const user = await prisma.user.findUnique({ where: { id: authResult.userId } });
   if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-  const currency = user.currentCurrency;
-  const config = await prisma.currencyConfig.findUnique({ where: { code: currency } });
-  if (!config?.enabled) {
+  const config = await getGlobalCurrencyConfig();
+  if (!config.enabled) {
     return NextResponse.json({ error: "Currency unavailable" }, { status: 400 });
   }
+  const currency = config.code;
 
-  if (parsed.data.amount < toNumber(config.minWithdrawal)) {
+  if (parsed.data.amount < config.minWithdrawal) {
     return NextResponse.json(
-      { error: `Minimum withdrawal is ${toNumber(config.minWithdrawal)} ${currency}` },
+      { error: `Minimum withdrawal is ${config.minWithdrawal} ${currency}` },
       { status: 400 },
     );
   }
@@ -63,12 +64,13 @@ export async function POST(req: Request) {
         realMoneyBalance: {
           decrement: new Prisma.Decimal(parsed.data.amount),
         },
+        currentCurrency: currency,
       },
     }),
   ]);
 
   return NextResponse.json({
     transaction: { ...tx, amount: toNumber(tx.amount) },
-    message: "Withdrawal completed",
+    message: `Withdrawal completed (${currency})`,
   });
 }

@@ -28,6 +28,8 @@ export async function POST(req: Request) {
     }
 
     const passwordHash = await bcrypt.hash(parsed.data.password, 12);
+    const { getGlobalCurrency } = await import("@/lib/currency");
+    const currentCurrency = await getGlobalCurrency();
     const user = await prisma.user.create({
       data: {
         email,
@@ -36,7 +38,7 @@ export async function POST(req: Request) {
         role: "USER",
         creditsBalance: 1000,
         realMoneyBalance: 0,
-        currentCurrency: "USD",
+        currentCurrency,
       },
       select: { id: true, email: true, name: true, role: true },
     });

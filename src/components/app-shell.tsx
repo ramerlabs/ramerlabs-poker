@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
-import { LayoutDashboard, LifeBuoy, LogOut, Shield, Spade, Wallet } from "lucide-react";
+import { KeyRound, LayoutDashboard, LifeBuoy, LogOut, Shield, Spade, Wallet } from "lucide-react";
 import { cn, formatMoney } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui";
@@ -13,6 +13,7 @@ const links = [
   { href: "/rooms", label: "Rooms", icon: Spade },
   { href: "/wallet", label: "Wallet", icon: Wallet },
   { href: "/support", label: "Support", icon: LifeBuoy },
+  { href: "/settings", label: "Settings", icon: KeyRound },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

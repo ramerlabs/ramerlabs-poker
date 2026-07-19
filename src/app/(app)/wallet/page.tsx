@@ -13,13 +13,14 @@ type WalletData = {
     name: string | null;
     email: string;
   };
-  currencies: {
+  currency: {
     code: string;
     name: string;
     usdtAddress: string | null;
     gcashMerchantId: string | null;
     minDeposit: number;
-  }[];
+    minWithdrawal: number;
+  };
   transactions: {
     id: string;
     amount: number;
@@ -66,22 +67,6 @@ export default function WalletPage() {
     }
     await update({ name: json.user.name });
     setMessage(`Display name set to “${json.user.name}”`);
-    await load();
-  }
-
-  async function switchCurrency(currency: string) {
-    setError(null);
-    const res = await fetch("/api/wallet/currency", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ currency }),
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      setError(json.error || "Could not switch currency");
-      return;
-    }
-    setMessage(`Active currency set to ${json.currentCurrency}`);
     await load();
   }
 
@@ -134,16 +119,37 @@ export default function WalletPage() {
     await load();
   }
 
+  async function claimCoupon(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    setMessage(null);
+    const form = new FormData(e.currentTarget);
+    const res = await fetch("/api/coupons/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: String(form.get("code") || "").trim() }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      setError(json.error || "Could not claim coupon");
+      return;
+    }
+    setMessage(json.message);
+    e.currentTarget.reset();
+    await load();
+  }
+
   if (!data) return <div className="text-[var(--muted)]">Loading wallet…</div>;
 
-  const active = data.currencies.find((c) => c.code === data.wallet.currentCurrency);
+  const active = data.currency;
+  const cashCode = data.wallet.currentCurrency;
 
   return (
     <div className="space-y-6 animate-fade-up">
       <div>
         <h1 className="text-4xl font-semibold text-[var(--gold-soft)]">Wallet</h1>
         <p className="mt-2 text-[var(--muted)]">
-          Split balances for credits vs real cash. Deposit and withdraw via USDT or GCash.
+          Credits for free play. Real cash is in {cashCode} (set by the platform).
         </p>
       </div>
 
@@ -156,10 +162,10 @@ export default function WalletPage() {
         </Panel>
         <Panel className="p-6">
           <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-            Real cash ({data.wallet.currentCurrency})
+            Real cash ({cashCode})
           </div>
           <div className="mt-2 text-4xl font-semibold text-[var(--success)]">
-            {formatMoney(data.wallet.realMoneyBalance, data.wallet.currentCurrency)}
+            {formatMoney(data.wallet.realMoneyBalance, cashCode)}
           </div>
         </Panel>
       </div>
@@ -187,18 +193,26 @@ export default function WalletPage() {
       </Panel>
 
       <Panel className="p-6">
-        <h2 className="text-xl font-semibold">Active currency</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {data.currencies.map((c) => (
-            <Button
-              key={c.code}
-              variant={c.code === data.wallet.currentCurrency ? "primary" : "ghost"}
-              onClick={() => switchCurrency(c.code)}
-            >
-              {c.code} — {c.name}
-            </Button>
-          ))}
-        </div>
+        <h2 className="text-xl font-semibold">Claim coupon</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">
+          Enter a promo code to add free credits or real cash to your wallet.
+        </p>
+        <form onSubmit={claimCoupon} className="mt-4 flex flex-wrap items-end gap-3">
+          <div className="min-w-[220px] flex-1">
+            <Label htmlFor="coupon-code">Coupon code</Label>
+            <Input
+              id="coupon-code"
+              name="code"
+              required
+              minLength={4}
+              maxLength={32}
+              placeholder="e.g. WELCOME100"
+              className="uppercase tracking-wider"
+              autoComplete="off"
+            />
+          </div>
+          <Button type="submit">Claim</Button>
+        </form>
       </Panel>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -294,7 +308,13 @@ export default function WalletPage() {
               className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/5 bg-black/20 px-3 py-2 text-sm"
             >
               <div className="flex items-center gap-2">
-                <Badge tone={tx.type === "DEPOSIT" ? "green" : "gold"}>{tx.type}</Badge>
+                <Badge
+                  tone={
+                    tx.type === "DEPOSIT" || tx.type === "BONUS" ? "green" : "gold"
+                  }
+                >
+                  {tx.type}
+                </Badge>
                 <span>
                   {tx.amount} {tx.currency} via {tx.gateway}
                 </span>

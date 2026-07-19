@@ -221,7 +221,11 @@ async function seatWaiter(
     return { seated: false, reason: `Need at least ${minBuyIn} to join` };
   }
   if (room.type === "REAL" && user.currentCurrency !== room.currency) {
-    return { seated: false, reason: "Wrong active currency" };
+    // Keep user label in sync with platform/room currency (no longer blocks seating).
+    await prisma.user.update({
+      where: { id: userId },
+      data: { currentCurrency: room.currency },
+    });
   }
 
   const entry = room.waitlist.find((w) => w.userId === userId);

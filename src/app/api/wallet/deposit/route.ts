@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { prisma } from "@/lib/prisma";
+import { getGlobalCurrencyConfig } from "@/lib/currency";
 import { requireUser } from "@/lib/session";
 import { toNumber } from "@/lib/utils";
 
@@ -26,15 +27,15 @@ export async function POST(req: Request) {
   const user = await prisma.user.findUnique({ where: { id: authResult.userId } });
   if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-  const currency = user.currentCurrency;
-  const config = await prisma.currencyConfig.findUnique({ where: { code: currency } });
-  if (!config?.enabled) {
+  const config = await getGlobalCurrencyConfig();
+  if (!config.enabled) {
     return NextResponse.json({ error: "Currency unavailable" }, { status: 400 });
   }
+  const currency = config.code;
 
-  if (parsed.data.amount < toNumber(config.minDeposit)) {
+  if (parsed.data.amount < config.minDeposit) {
     return NextResponse.json(
-      { error: `Minimum deposit is ${toNumber(config.minDeposit)} ${currency}` },
+      { error: `Minimum deposit is ${config.minDeposit} ${currency}` },
       { status: 400 },
     );
   }
@@ -48,7 +49,6 @@ export async function POST(req: Request) {
       ? parsed.data.reference
       : `GCASH-${nanoid(10).toUpperCase()}`;
 
-  // Mock gateway: auto-complete and credit real-money balance
   const [tx] = await prisma.$transaction([
     prisma.transaction.create({
       data: {
@@ -74,6 +74,7 @@ export async function POST(req: Request) {
         realMoneyBalance: {
           increment: new Prisma.Decimal(parsed.data.amount),
         },
+        currentCurrency: currency,
       },
     }),
   ]);
@@ -82,7 +83,7 @@ export async function POST(req: Request) {
     transaction: { ...tx, amount: toNumber(tx.amount) },
     message:
       parsed.data.gateway === "USDT"
-        ? "USDT deposit credited after hash submission"
-        : "GCash deposit credited with reference confirmation",
+        ? `USDT deposit credited (${currency})`
+        : `GCash deposit credited (${currency})`,
   });
 }

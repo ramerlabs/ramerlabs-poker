@@ -21,6 +21,8 @@ const createSchema = z.object({
   targetBots: z.number().int().min(0).max(9).default(0),
   botSkillPercent: z.number().int().min(0).max(100).default(50),
   isPrivate: z.boolean().default(false),
+  /// Table must belong to a club (owners create tables; admin may create for a club).
+  clubId: z.string().min(1),
 });
 
 export async function GET() {
@@ -31,6 +33,7 @@ export async function GET() {
     include: {
       players: { select: { id: true } },
       creator: { select: { id: true, name: true, email: true } },
+      club: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -53,6 +56,7 @@ export async function GET() {
       status: room.status,
       playerCount: room.players.length,
       creator: room.creator,
+      club: room.club,
       createdAt: room.createdAt,
     })),
   });
@@ -64,7 +68,7 @@ export async function POST(req: Request) {
 
   const parsed = createSchema.safeParse(await req.json());
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid table payload" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid table payload — select a club" }, { status: 400 });
   }
 
   const data = parsed.data;
@@ -75,15 +79,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Bots cannot exceed max players" }, { status: 400 });
   }
 
+  const club = await prisma.club.findUnique({
+    where: { id: data.clubId },
+    select: { id: true, name: true, active: true, ownerId: true },
+  });
+  if (!club || !club.active) {
+    return NextResponse.json({ error: "Club not found or inactive" }, { status: 400 });
+  }
+
   let currency = data.type === "FREE" ? "CREDITS" : data.currency ?? "USD";
   if (data.type === "REAL") {
-    const config = await prisma.currencyConfig.findUnique({
-      where: { code: currency.toUpperCase() },
-    });
-    if (!config?.enabled) {
-      return NextResponse.json({ error: `Currency ${currency} is not enabled` }, { status: 400 });
-    }
-    currency = config.code;
+    const { getGlobalCurrency } = await import("@/lib/currency");
+    currency = await getGlobalCurrency();
   }
 
   const settings = await getPlatformSettings();
@@ -110,7 +117,8 @@ export async function POST(req: Request) {
       botSkillPercent: data.botSkillPercent,
       isPrivate,
       inviteCode: isPrivate ? inviteCode() : null,
-      creatorId: authResult.userId,
+      creatorId: club.ownerId,
+      clubId: club.id,
     },
   });
 
@@ -125,6 +133,7 @@ export async function POST(req: Request) {
         inviteCode: room.inviteCode,
         targetBots: room.targetBots,
         botsSeeded: bots.length,
+        club: { id: club.id, name: club.name },
       },
     },
     { status: 201 },

@@ -1,18 +1,22 @@
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getGlobalCurrency } from "@/lib/currency";
 import { formatMoney, toNumber } from "@/lib/utils";
 import { Badge, Button, Panel } from "@/components/ui";
 
 export default async function DashboardPage() {
   const session = await auth();
-  const user = await prisma.user.findUnique({ where: { id: session!.user!.id } });
-  const rooms = await prisma.room.findMany({
-    where: { status: { not: "CLOSED" } },
-    include: { players: true },
-    orderBy: { createdAt: "desc" },
-    take: 6,
-  });
+  const [user, rooms, cashCurrency] = await Promise.all([
+    prisma.user.findUnique({ where: { id: session!.user!.id } }),
+    prisma.room.findMany({
+      where: { status: { not: "CLOSED" } },
+      include: { players: true },
+      orderBy: { createdAt: "desc" },
+      take: 6,
+    }),
+    getGlobalCurrency(),
+  ]);
 
   return (
     <div className="space-y-6 animate-fade-up">
@@ -35,10 +39,10 @@ export default async function DashboardPage() {
         </Panel>
         <Panel className="p-6">
           <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-            Real cash ({user?.currentCurrency})
+            Real cash ({cashCurrency})
           </div>
           <div className="mt-2 text-4xl font-semibold text-[var(--success)]">
-            {formatMoney(toNumber(user?.realMoneyBalance), user?.currentCurrency ?? "USD")}
+            {formatMoney(toNumber(user?.realMoneyBalance), cashCurrency)}
           </div>
           <p className="mt-2 text-sm text-[var(--muted)]">Funded via USDT / GCash gateways</p>
         </Panel>

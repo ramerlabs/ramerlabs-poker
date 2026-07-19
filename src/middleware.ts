@@ -9,6 +9,7 @@ export const config = {
     "/rooms/:path*",
     "/wallet/:path*",
     "/support/:path*",
+    "/settings/:path*",
     "/admin/:path*",
     "/login",
     "/register",
