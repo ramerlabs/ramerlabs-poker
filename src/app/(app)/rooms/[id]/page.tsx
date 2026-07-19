@@ -310,6 +310,25 @@ export default function RoomDetailPage() {
     }
   }
 
+  async function standUp() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/rooms/${params.id}/standup`, { method: "POST" });
+      const json = await readJson<{ error?: string; ok?: boolean }>(res);
+      if (!res.ok) {
+        setError(json.error || "Could not stand up");
+        return;
+      }
+      setHint("You stood up from your seat and are back on the waitlist.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not stand up");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!data && !error) {
     return <div className="text-[var(--muted)]">Loading table…</div>;
   }
@@ -441,9 +460,14 @@ export default function RoomDetailPage() {
             </Button>
           )}
           {seated && (
-            <Button disabled={busy} variant="danger" onClick={() => void leaveTable()}>
-              Leave table
-            </Button>
+            <>
+              <Button variant="ghost" disabled={busy} onClick={() => void standUp()}>
+                Stand up (to waitlist)
+              </Button>
+              <Button disabled={busy} variant="danger" onClick={() => void leaveTable()}>
+                Leave table
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -547,14 +571,24 @@ export default function RoomDetailPage() {
               <div className="table-fs-title">{data.room.name}</div>
               <div className="table-fs-actions">
                 {seated && (
-                  <button
-                    type="button"
-                    className="table-fs-btn is-danger"
-                    disabled={busy}
-                    onClick={() => void leaveTable()}
-                  >
-                    Leave
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="table-fs-btn"
+                      disabled={busy}
+                      onClick={() => void standUp()}
+                    >
+                      Stand
+                    </button>
+                    <button
+                      type="button"
+                      className="table-fs-btn is-danger"
+                      disabled={busy}
+                      onClick={() => void leaveTable()}
+                    >
+                      Leave
+                    </button>
+                  </>
                 )}
                 <button
                   type="button"
