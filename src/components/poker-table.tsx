@@ -640,12 +640,16 @@ export function PokerTable({
     const applyId = ++refreshApplyIdRef.current;
     const started = performance.now();
     const run = (async () => {
+      const ac = new AbortController();
+      const kill = window.setTimeout(() => ac.abort(), 8_000);
       try {
         const qs = doTick ? "?light=1" : "?light=1&tick=0";
         const res = await fetch(`/api/rooms/${roomId}${qs}`, {
           cache: "no-store",
           headers: { "Cache-Control": "no-cache" },
-          signal: AbortSignal.timeout(8_000),
+          // AbortSignal.timeout() is missing on some mobile browsers and
+          // was silently killing every poll (UI stuck on an old hand).
+          signal: ac.signal,
         });
         const ms = Math.round(performance.now() - started);
         // A newer refresh was started (should not happen with queueing, but be safe)
@@ -684,6 +688,8 @@ export function PokerTable({
         }
       } catch {
         if (applyId === refreshApplyIdRef.current) setConnFails((n) => n + 1);
+      } finally {
+        window.clearTimeout(kill);
       }
     })();
 
