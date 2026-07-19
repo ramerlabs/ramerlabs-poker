@@ -24,11 +24,13 @@ function markTurnClock(state: PokerTableState, seat: number | null) {
   if (!state.turnSeconds) state.turnSeconds = DEFAULT_TURN_SECONDS;
 }
 
-const MAX_STREET_HOLD_MS = 15_000;
+/** Deal/reveal pauses are ≤800ms. Anything longer is clock-skew or a stuck hold. */
+const MAX_STREET_HOLD_REMAINING_MS = 1_200;
 
 /**
  * Clear absurd/expired deal holds and ensure the actor has a running clock.
- * A stuck streetHoldUntil (hours ahead) previously froze every table forever.
+ * Serverless clock skew previously left streetHoldUntil several seconds in the
+ * future on some instances, freezing bots at "Waiting… (0s)".
  */
 export function sanitizeTableClocks(state: PokerTableState): boolean {
   let changed = false;
@@ -36,23 +38,19 @@ export function sanitizeTableClocks(state: PokerTableState): boolean {
 
   if (state.streetHoldUntil != null) {
     const holdMs = state.streetHoldUntil - now;
-    if (holdMs <= 0 || holdMs > MAX_STREET_HOLD_MS) {
+    if (holdMs <= 0 || holdMs > MAX_STREET_HOLD_REMAINING_MS) {
       state.streetHoldUntil = null;
       changed = true;
     }
   }
 
-  // Serverless instances can disagree on wall-clock by a few seconds.
   // Any future turnStartedAt freezes bots (waited < 0) until the lag catches up.
   if (state.turnStartedAt != null && state.turnStartedAt > now) {
     state.turnStartedAt = now;
     changed = true;
   }
 
-  if (
-    state.turnStartedAt != null &&
-    now - state.turnStartedAt > 600_000
-  ) {
+  if (state.turnStartedAt != null && now - state.turnStartedAt > 600_000) {
     state.turnStartedAt = state.actionSeat != null ? now : null;
     changed = true;
   }

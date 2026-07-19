@@ -877,7 +877,9 @@ export function PokerTable({
         setSecondsLeft(turnSeconds);
         return;
       }
-      const elapsed = Math.floor((Date.now() - state.turnStartedAt) / 1000);
+      // Clamp future clocks (server ahead of browser) so elapsed never goes negative
+      const started = Math.min(state.turnStartedAt, Date.now());
+      const elapsed = Math.floor((Date.now() - started) / 1000);
       setSecondsLeft(Math.max(0, turnSeconds - elapsed));
     };
     tick();

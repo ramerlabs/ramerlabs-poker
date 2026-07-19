@@ -494,9 +494,53 @@ const tickInflight = new Map<string, Promise<PokerTableState>>();
 const lastTickAt = new Map<string, number>();
 const lastRosterSyncAt = new Map<string, number>();
 
+/** True when the table needs an immediate tick (0s timer / deal hold / auto-deal). */
+function needsUrgentTick(state: PokerTableState): boolean {
+  const now = Date.now();
+  if (
+    (state.street === "waiting" || state.street === "complete") &&
+    liveSeatCount(state) >= 2
+  ) {
+    if (state.street === "complete" && state.handEndedAt != null) {
+      return now - state.handEndedAt >= 2800;
+    }
+    return true;
+  }
+  if (
+    state.street === "waiting" ||
+    state.street === "complete" ||
+    state.street === "showdown" ||
+    state.actionSeat == null
+  ) {
+    return false;
+  }
+  // Skewed deal hold still open — clear via tick sanitize
+  if (state.streetHoldUntil != null && state.streetHoldUntil - now > 1_200) {
+    return true;
+  }
+  if (state.streetHoldUntil != null && now >= state.streetHoldUntil) {
+    return true;
+  }
+  const actor = state.seats.find((s) => s.seat === state.actionSeat);
+  if (!actor || actor.folded || actor.allIn) return true;
+  if (state.turnStartedAt == null) {
+    // Deal/reveal pause: only urgent if hold is skewed/expired (not mid-animation)
+    if (state.streetHoldUntil != null && now < state.streetHoldUntil) {
+      return state.streetHoldUntil - now > 1_200;
+    }
+    return true;
+  }
+  const started = Math.min(state.turnStartedAt, now);
+  const waited = now - started;
+  if (isBotUserId(actor.userId)) {
+    return waited >= 1_000; // bots should never sit more than ~1s
+  }
+  return waited >= turnLimitMs(state, actor.userId);
+}
+
 /**
- * Start a tick if needed. Prefer not to block callers on a full tick (latency),
- * but always await an in-flight tick briefly so timeout folds aren't invisible.
+ * Start a tick if needed. Background for normal polls; await when the table is
+ * stuck at 0s / deal-hold so clients don't keep seeing a frozen "Waiting… (0s)".
  */
 export async function tickRoomDebounced(roomId: string, minIntervalMs = 200): Promise<PokerTableState> {
   const existing = tickInflight.get(roomId);
@@ -507,7 +551,7 @@ export async function tickRoomDebounced(roomId: string, minIntervalMs = 200): Pr
         new Promise<PokerTableState>((resolve) => {
           setTimeout(() => {
             void ensureGameState(roomId).then(resolve);
-          }, 400);
+          }, 800);
         }),
       ]);
     } catch {
@@ -515,15 +559,18 @@ export async function tickRoomDebounced(roomId: string, minIntervalMs = 200): Pr
     }
   }
 
+  const snapshot = await ensureGameState(roomId);
+  const urgent = needsUrgentTick(snapshot);
+
   const last = lastTickAt.get(roomId) ?? 0;
-  if (Date.now() - last < minIntervalMs) {
-    return ensureGameState(roomId);
+  if (!urgent && Date.now() - last < minIntervalMs) {
+    return snapshot;
   }
 
   const run = Promise.race([
     tickRoom(roomId),
     new Promise<PokerTableState>((_, reject) => {
-      setTimeout(() => reject(new Error("TICK_TIMEOUT")), 12_000);
+      setTimeout(() => reject(new Error("TICK_TIMEOUT")), urgent ? 4_000 : 12_000);
     }),
   ])
     .then((state) => {
@@ -541,9 +588,18 @@ export async function tickRoomDebounced(roomId: string, minIntervalMs = 200): Pr
     });
 
   tickInflight.set(roomId, run);
-  // Kick off without blocking the poll response on bot think / DB work
+
+  if (urgent) {
+    try {
+      return await run;
+    } catch {
+      return ensureGameState(roomId);
+    }
+  }
+
+  // Non-urgent: don't block the poll on bot think / DB work
   void run.catch(() => {});
-  return ensureGameState(roomId);
+  return snapshot;
 }
 
 /**
@@ -913,8 +969,7 @@ export async function getPublicGameState(
   viewerId?: string,
   options?: { tick?: boolean },
 ) {
-  // tickRoomDebounced returns current state immediately and runs the tick in
-  // the background — awaiting a full tick here caused 5–20s NET WEAK freezes.
+  // Non-urgent ticks stay background; overdue turns/holds await so UI unsticks.
   let state =
     options?.tick === false
       ? await ensureGameState(roomId)
