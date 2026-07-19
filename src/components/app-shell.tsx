@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
-import { KeyRound, LayoutDashboard, LifeBuoy, LogOut, Shield, Spade, Wallet } from "lucide-react";
+import { KeyRound, LayoutDashboard, LifeBuoy, LogOut, Shield, Spade, Users, Wallet } from "lucide-react";
 import { cn, formatMoney } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui";
@@ -22,6 +22,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [wallet, setWallet] = useState<{ credits: number; cash: number; currency: string } | null>(
     null,
   );
+  const [isClubOwner, setIsClubOwner] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -36,6 +37,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         });
       })
       .catch(() => undefined);
+    fetch("/api/club/mine")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (!active) return;
+        setIsClubOwner(Boolean(json?.club));
+      })
+      .catch(() => {
+        if (active) setIsClubOwner(false);
+      });
     return () => {
       active = false;
     };
@@ -79,6 +89,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Link>
               );
             })}
+            {isClubOwner && (
+              <Link
+                href="/club"
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition",
+                  pathname.startsWith("/club")
+                    ? "bg-white/8 text-[var(--gold-soft)]"
+                    : "text-[var(--muted)] hover:bg-white/5 hover:text-[var(--text)]",
+                )}
+              >
+                <Users className="h-4 w-4" />
+                Club
+              </Link>
+            )}
             {data?.user?.role === "ADMIN" && (
               <Link
                 href="/admin"
@@ -143,6 +167,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
           );
         })}
+        {isClubOwner && (
+          <Link
+            href="/club"
+            className={cn(
+              "rounded-xl p-2.5",
+              pathname.startsWith("/club") ? "bg-white/10 text-[var(--gold)]" : "text-[var(--muted)]",
+            )}
+            title="Club"
+          >
+            <Users className="h-5 w-5" />
+          </Link>
+        )}
       </div>
     </div>
   );

@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
+import { Toast, type ToastTone } from "@/components/toast";
 
 type Room = {
   id: string;
@@ -16,7 +17,11 @@ type Room = {
   isPrivate: boolean;
   inviteCode: string | null;
   players: { id: string }[];
-  club: { id: string; name: string } | null;
+  club: {
+    id: string;
+    name: string;
+    owner: { name: string | null; email: string };
+  } | null;
 };
 
 type MyClub = { id: string; name: string; active: boolean };
@@ -29,6 +34,9 @@ export default function RoomsPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [joining, setJoining] = useState(false);
+  const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
+  const clearToast = useCallback(() => setToast(null), []);
 
   async function load() {
     const res = await fetch("/api/rooms");
@@ -42,6 +50,32 @@ export default function RoomsPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  async function joinByInvite(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setJoining(true);
+    setError(null);
+    const form = new FormData(e.currentTarget);
+    const inviteCode = String(form.get("inviteCode") || "").trim();
+    const res = await fetch("/api/rooms/by-invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inviteCode, join: true }),
+    });
+    const json = await res.json();
+    setJoining(false);
+    if (!res.ok) {
+      const err = json.error || "Could not open table";
+      setError(err);
+      setToast({ text: err, tone: "error" });
+      return;
+    }
+    setToast({ text: json.message || "Opening table…", tone: "success" });
+    e.currentTarget.reset();
+    if (json.path) {
+      window.location.href = json.path;
+    }
+  }
 
   async function onCreate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -81,27 +115,68 @@ export default function RoomsPage() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr] animate-fade-up">
+      <Toast message={toast?.text ?? null} tone={toast?.tone} onClose={clearToast} />
+
       <div className="space-y-4">
         <div>
           <h1 className="text-4xl font-semibold text-[var(--gold-soft)]">Rooms</h1>
           <p className="mt-2 text-[var(--muted)]">
-            Join open tables. Admins and club owners can create new tables.
+            Join open tables with an invite code, or browse the lobby. Admins and club owners can
+            create tables.
           </p>
         </div>
+
+        <Panel className="p-5">
+          <h2 className="text-xl font-semibold">Enter with invite code</h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            Have a private table code? Enter it here to open the table.
+          </p>
+          <form onSubmit={joinByInvite} className="mt-4 flex flex-wrap items-end gap-3">
+            <div className="min-w-[200px] flex-1">
+              <Label htmlFor="inviteCode">Invite code</Label>
+              <Input
+                id="inviteCode"
+                name="inviteCode"
+                required
+                minLength={4}
+                maxLength={16}
+                placeholder="e.g. AB12CD34"
+                className="uppercase tracking-wider"
+                autoComplete="off"
+              />
+            </div>
+            <Button type="submit" disabled={joining}>
+              {joining ? "Opening…" : "Enter table"}
+            </Button>
+          </form>
+        </Panel>
+
         {rooms.map((room) => (
           <Panel key={room.id} className="p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-2xl font-semibold">{room.name}</h2>
                   <Badge tone={room.type === "FREE" ? "green" : "gold"}>{room.type}</Badge>
                   {room.isPrivate && <Badge tone="muted">Private</Badge>}
+                  {room.club && <Badge tone="gold">{room.club.name}</Badge>}
                 </div>
                 <p className="mt-1 text-sm text-[var(--muted)]">
-                  {room.club ? `${room.club.name} · ` : ""}
                   {room.smallBlind}/{room.bigBlind} · Buy-in {room.buyIn} {room.currency} ·{" "}
                   {room.players.length}/{room.maxPlayers} players
                 </p>
+                {room.club && (
+                  <p className="mt-2 text-sm text-[var(--gold-soft)]">
+                    Club table — need credits? Contact the club owner at{" "}
+                    <a
+                      href={`mailto:${room.club.owner.email}`}
+                      className="underline hover:text-[var(--gold)]"
+                    >
+                      {room.club.owner.email}
+                    </a>
+                    {room.club.owner.name ? ` (${room.club.owner.name})` : ""} for a top-up.
+                  </p>
+                )}
                 {room.isPrivate && room.inviteCode && (
                   <p className="mt-2 font-mono text-xs text-[var(--gold)]">
                     Invite: {room.inviteCode}

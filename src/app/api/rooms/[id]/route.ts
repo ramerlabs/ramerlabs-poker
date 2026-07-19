@@ -19,6 +19,13 @@ const roomInclude = {
     include: { user: { select: { id: true, name: true, email: true } } },
   },
   creator: { select: { id: true, name: true, email: true } },
+  club: {
+    select: {
+      id: true,
+      name: true,
+      owner: { select: { id: true, name: true, email: true } },
+    },
+  },
 };
 
 /** Don't run expensive stale-player purge on every 1–2s light poll */
@@ -122,6 +129,16 @@ export async function GET(req: Request, { params }: Params) {
           buyIn: toNumber(room.buyIn),
           smallBlind: toNumber(room.smallBlind),
           bigBlind: toNumber(room.bigBlind),
+          club: room.club
+            ? {
+                id: room.club.id,
+                name: room.club.name,
+                owner: {
+                  name: room.club.owner.name,
+                  email: room.club.owner.email,
+                },
+              }
+            : null,
           // Hide bot roster details from regular players
           targetBots: isAdmin ? room.targetBots : undefined,
           players: room.players.map((p) => ({

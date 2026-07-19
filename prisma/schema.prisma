@@ -103,6 +103,9 @@ model User {
   couponsCreated    Coupon[]        @relation("CouponCreator")
   couponClaims      CouponClaim[]
   ownedClub         Club?
+  clubMemberships   ClubClient[]
+  clubTransfersSent ClubTransfer[]      @relation("ClubTransferActor")
+  clubTransfersRecv ClubTransfer[]      @relation("ClubTransferRecipient")
 
   @@index([email])
 }
@@ -153,12 +156,48 @@ model Club {
   /// One club per owner.
   ownerId   String   @unique
   owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  /// Credits the owner can assign to clients (funded by admin).
+  balance   Decimal  @default(0) @db.Decimal(18, 2)
   active    Boolean  @default(true)
   rooms     Room[]
+  clients   ClubClient[]
+  transfers ClubTransfer[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([active])
+}
+
+/// Players managed by a club owner (created or linked by the owner).
+model ClubClient {
+  id        String   @id @default(cuid())
+  clubId    String
+  userId    String
+  note      String?
+  createdAt DateTime @default(now())
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clubId, userId])
+  @@index([userId])
+  @@index([clubId, createdAt])
+}
+
+/// Ledger when a club owner assigns credits from the club balance to a client.
+model ClubTransfer {
+  id          String   @id @default(cuid())
+  clubId      String
+  toUserId    String
+  actorId     String
+  amount      Decimal  @db.Decimal(18, 2)
+  note        String?
+  createdAt   DateTime @default(now())
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  toUser      User     @relation("ClubTransferRecipient", fields: [toUserId], references: [id], onDelete: Cascade)
+  actor       User     @relation("ClubTransferActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([clubId, createdAt])
+  @@index([toUserId, createdAt])
 }
 
 model RoomWaitlist {

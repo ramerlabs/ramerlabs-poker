@@ -26,6 +26,11 @@ type RoomPayload = {
     isPrivate: boolean;
     inviteCode: string | null;
     creatorId: string;
+    club: {
+      id: string;
+      name: string;
+      owner: { name: string | null; email: string };
+    } | null;
     players: {
       userId: string;
       seat: number;
@@ -385,17 +390,31 @@ export default function RoomDetailPage() {
     <div className="space-y-3 animate-fade-up">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-semibold text-[var(--gold-soft)] md:text-3xl">
               {data.room.name}
             </h1>
             <Badge tone={data.room.type === "FREE" ? "green" : "gold"}>{data.room.type}</Badge>
+            {data.room.club && <Badge tone="gold">{data.room.club.name}</Badge>}
           </div>
           <p className="mt-1 text-xs text-[var(--muted)] md:text-sm">
             Blinds {data.room.smallBlind}/{data.room.bigBlind} · Buy-in {data.room.buyIn}{" "}
             {data.room.currency} · {data.room.players.length}/{data.room.maxPlayers} seated
             {data.room.waitlist.length > 0 ? ` · ${data.room.waitlist.length} waiting` : ""}
           </p>
+          {data.room.club && (
+            <p className="mt-2 rounded-xl border border-[rgba(212,168,83,0.35)] bg-[rgba(212,168,83,0.08)] px-3 py-2 text-sm text-[var(--gold-soft)]">
+              This table is run by <strong>{data.room.club.name}</strong>. To top up your credits,
+              contact the club owner at{" "}
+              <a
+                href={`mailto:${data.room.club.owner.email}`}
+                className="font-semibold underline hover:text-[var(--gold)]"
+              >
+                {data.room.club.owner.email}
+              </a>
+              {data.room.club.owner.name ? ` (${data.room.club.owner.name})` : ""}.
+            </p>
+          )}
           {data.room.isPrivate && data.room.inviteCode && (
             <p className="mt-1 font-mono text-xs text-[var(--gold)]">
               Invite code: {data.room.inviteCode}

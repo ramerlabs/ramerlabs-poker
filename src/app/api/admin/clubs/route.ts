@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
+import { toNumber } from "@/lib/utils";
 
 const createSchema = z.object({
   name: z.string().min(2).max(64),
   ownerEmail: z.string().email(),
+  /** Optional starting club credit balance. */
+  balance: z.number().min(0).max(10_000_000).optional(),
 });
 
 const patchSchema = z.object({
@@ -13,6 +17,8 @@ const patchSchema = z.object({
   name: z.string().min(2).max(64).optional(),
   ownerEmail: z.string().email().optional(),
   active: z.boolean().optional(),
+  /** Add credits to the club owner float (admin top-up). */
+  addBalance: z.number().positive().max(10_000_000).optional(),
 });
 
 export async function GET() {
@@ -22,7 +28,7 @@ export async function GET() {
   const clubs = await prisma.club.findMany({
     include: {
       owner: { select: { id: true, name: true, email: true } },
-      _count: { select: { rooms: true } },
+      _count: { select: { rooms: true, clients: true } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -32,8 +38,10 @@ export async function GET() {
       id: c.id,
       name: c.name,
       active: c.active,
+      balance: toNumber(c.balance),
       owner: c.owner,
       roomCount: c._count.rooms,
+      clientCount: c._count.clients,
       createdAt: c.createdAt,
     })),
   });
@@ -72,6 +80,7 @@ export async function POST(req: Request) {
     data: {
       name: parsed.data.name.trim(),
       ownerId: owner.id,
+      balance: new Prisma.Decimal(parsed.data.balance ?? 0),
     },
     include: {
       owner: { select: { id: true, name: true, email: true } },
@@ -84,6 +93,7 @@ export async function POST(req: Request) {
         id: club.id,
         name: club.name,
         active: club.active,
+        balance: toNumber(club.balance),
         owner: club.owner,
         createdAt: club.createdAt,
       },
@@ -136,6 +146,9 @@ export async function PATCH(req: Request) {
       ownerId,
       ...(parsed.data.name != null ? { name: parsed.data.name.trim() } : {}),
       ...(parsed.data.active !== undefined ? { active: parsed.data.active } : {}),
+      ...(parsed.data.addBalance != null
+        ? { balance: { increment: new Prisma.Decimal(parsed.data.addBalance) } }
+        : {}),
     },
     include: {
       owner: { select: { id: true, name: true, email: true } },
@@ -147,8 +160,12 @@ export async function PATCH(req: Request) {
       id: updated.id,
       name: updated.name,
       active: updated.active,
+      balance: toNumber(updated.balance),
       owner: updated.owner,
     },
-    message: `Club “${updated.name}” updated`,
+    message:
+      parsed.data.addBalance != null
+        ? `Added ${parsed.data.addBalance.toLocaleString()} credits to “${updated.name}” (balance ${toNumber(updated.balance).toLocaleString()})`
+        : `Club “${updated.name}” updated`,
   });
 }

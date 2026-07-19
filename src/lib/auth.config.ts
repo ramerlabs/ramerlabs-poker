@@ -18,6 +18,7 @@ export const authConfig = {
         pathname.startsWith("/wallet") ||
         pathname.startsWith("/support") ||
         pathname.startsWith("/settings") ||
+        pathname.startsWith("/club") ||
         pathname.startsWith("/admin");
 
       if (isProtected && !isLoggedIn) return false;

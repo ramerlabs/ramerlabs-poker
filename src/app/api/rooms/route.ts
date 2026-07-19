@@ -36,7 +36,13 @@ export async function GET() {
     include: {
       players: { select: { id: true, userId: true, seat: true } },
       creator: { select: { id: true, name: true, email: true } },
-      club: { select: { id: true, name: true } },
+      club: {
+        select: {
+          id: true,
+          name: true,
+          owner: { select: { name: true, email: true } },
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -54,7 +60,13 @@ export async function GET() {
         smallBlind: toNumber(room.smallBlind),
         bigBlind: toNumber(room.bigBlind),
         inviteCode: room.isPrivate && canSeeInvite ? room.inviteCode : null,
-        club: room.club,
+        club: room.club
+          ? {
+              id: room.club.id,
+              name: room.club.name,
+              owner: room.club.owner,
+            }
+          : null,
       };
     }),
   });

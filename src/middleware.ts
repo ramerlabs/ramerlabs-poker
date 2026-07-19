@@ -10,6 +10,7 @@ export const config = {
     "/wallet/:path*",
     "/support/:path*",
     "/settings/:path*",
+    "/club/:path*",
     "/admin/:path*",
     "/login",
     "/register",

@@ -99,7 +99,9 @@ type AdminClub = {
   id: string;
   name: string;
   active: boolean;
+  balance: number;
   roomCount: number;
+  clientCount: number;
   owner: { id: string; name: string | null; email: string };
   createdAt: string;
 };
@@ -253,6 +255,7 @@ export default function AdminPage() {
       body: JSON.stringify({
         name: String(form.get("name")),
         ownerEmail: String(form.get("ownerEmail")),
+        balance: Number(form.get("balance") || 0) || 0,
       }),
     });
     const json = await res.json();
@@ -284,6 +287,31 @@ export default function AdminPage() {
     }
     setMessage(json.message);
     window.scrollTo({ top: 0, behavior: "smooth" });
+    await load();
+  }
+
+  async function fundClub(id: string, name: string) {
+    const raw = window.prompt(`Add credits to club “${name}” balance`, "1000");
+    if (raw == null) return;
+    const addBalance = Number(raw);
+    if (!Number.isFinite(addBalance) || addBalance <= 0) {
+      setError("Enter a positive credit amount");
+      setToast({ text: "Enter a positive credit amount", tone: "error" });
+      return;
+    }
+    const res = await fetch("/api/admin/clubs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, addBalance }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      setError(json.error || "Could not fund club");
+      setToast({ text: json.error || "Could not fund club", tone: "error" });
+      return;
+    }
+    setMessage(json.message);
+    setToast({ text: json.message, tone: "success" });
     await load();
   }
 
@@ -597,7 +625,8 @@ export default function AdminPage() {
           <div>
             <h2 className="text-xl font-semibold">Clubs</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Only admins can make a player a club owner. Admins and club owners can create tables.
+              Only admins can make a player a club owner. Fund each club’s credit balance so owners
+              can top up their clients.
             </p>
           </div>
           <Badge tone="gold">{clubs.length} clubs</Badge>
@@ -605,7 +634,7 @@ export default function AdminPage() {
 
         <form
           onSubmit={createClub}
-          className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3"
+          className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4"
         >
           <div>
             <Label>Club name</Label>
@@ -619,6 +648,10 @@ export default function AdminPage() {
               required
               placeholder="player@example.com"
             />
+          </div>
+          <div>
+            <Label>Starting balance</Label>
+            <Input name="balance" type="number" min={0} defaultValue={0} />
           </div>
           <div className="flex items-end">
             <Button type="submit" disabled={creatingClub}>
@@ -646,11 +679,19 @@ export default function AdminPage() {
                   </Badge>
                 </div>
                 <div className="mt-1 text-xs text-[var(--muted)]">
-                  Owner: {c.owner.name || c.owner.email} ({c.owner.email}) · {c.roomCount}{" "}
-                  table(s)
+                  Owner: {c.owner.name || c.owner.email} ({c.owner.email}) · balance{" "}
+                  {(c.balance ?? 0).toLocaleString()} · {c.clientCount ?? 0} client(s) ·{" "}
+                  {c.roomCount} table(s)
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => void fundClub(c.id, c.name)}
+                >
+                  Add credits
+                </Button>
                 <Button
                   type="button"
                   variant="ghost"
