@@ -6,6 +6,7 @@ import { Maximize2, Minimize2, Spade, X } from "lucide-react";
 import { PokerTable } from "@/components/poker-table";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
 import type { PublicTableState } from "@/lib/poker/types";
+import { playSfx, setMuted, unlockAudio } from "@/lib/sounds";
 import { readJson } from "@/lib/utils";
 
 type RoomPayload = {
@@ -462,8 +463,8 @@ export default function RoomDetailPage() {
               </div>
             </div>
             <p className="text-sm leading-relaxed text-[var(--muted)]">
-              Open the table fullscreen for a phone-friendly felt, larger seats, and action buttons
-              that stay within reach.
+              Watch or play fullscreen — table sounds work even if you are not seated. Tap Enable
+              sound once (browsers block audio until you interact).
             </p>
             <div className="flex flex-wrap gap-2 text-xs text-[var(--muted)]">
               <span className="rounded-full border border-[var(--line)] bg-black/25 px-2.5 py-1">
@@ -478,12 +479,27 @@ export default function RoomDetailPage() {
                 </span>
               )}
             </div>
-            <Button
-              className="w-full !py-3.5 text-base font-semibold"
-              onClick={() => void openTable({ browserFs: true })}
-            >
-              Go to table
-            </Button>
+            <div className="flex flex-col gap-2">
+              <Button
+                className="w-full !py-3.5 text-base font-semibold"
+                onClick={() => void openTable({ browserFs: true })}
+              >
+                {seated ? "Go to table" : "Watch table"}
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full"
+                onClick={() => {
+                  setMuted(false);
+                  void unlockAudio().then(() => {
+                    playSfx("click");
+                    setTimeout(() => playSfx("chip"), 80);
+                  });
+                }}
+              >
+                Enable sound
+              </Button>
+            </div>
           </div>
         </Panel>
       )}
@@ -494,45 +510,52 @@ export default function RoomDetailPage() {
         </Panel>
       )}
 
-      {isMobile && tableOpen && (
-        <div ref={tableRootRef} className="table-fullscreen-root">
-          <div className="table-fullscreen-bar">
-            <button
-              type="button"
-              className="table-fs-btn"
-              onClick={closeTable}
-              aria-label="Close table"
-            >
-              <X className="h-5 w-5" />
-              <span>Close</span>
-            </button>
-            <div className="table-fs-title">{data.room.name}</div>
-            <div className="table-fs-actions">
-              {seated && (
-                <button
-                  type="button"
-                  className="table-fs-btn is-danger"
-                  disabled={busy}
-                  onClick={() => void leaveTable()}
-                >
-                  Leave
-                </button>
-              )}
+      {isMobile && (
+        <div
+          ref={tableRootRef}
+          className={tableOpen ? "table-fullscreen-root" : "table-sound-host"}
+          hidden={!tableOpen}
+          aria-hidden={!tableOpen}
+        >
+          {tableOpen && (
+            <div className="table-fullscreen-bar">
               <button
                 type="button"
                 className="table-fs-btn"
-                onClick={() => {
-                  if (browserFs) exitBrowserFullscreen();
-                  else void enterBrowserFullscreen();
-                }}
-                aria-label={browserFs ? "Exit fullscreen" : "Enter fullscreen"}
+                onClick={closeTable}
+                aria-label="Close table"
               >
-                {browserFs ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
-                <span>{browserFs ? "Exit" : "Full"}</span>
+                <X className="h-5 w-5" />
+                <span>Close</span>
               </button>
+              <div className="table-fs-title">{data.room.name}</div>
+              <div className="table-fs-actions">
+                {seated && (
+                  <button
+                    type="button"
+                    className="table-fs-btn is-danger"
+                    disabled={busy}
+                    onClick={() => void leaveTable()}
+                  >
+                    Leave
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="table-fs-btn"
+                  onClick={() => {
+                    if (browserFs) exitBrowserFullscreen();
+                    else void enterBrowserFullscreen();
+                  }}
+                  aria-label={browserFs ? "Exit fullscreen" : "Enter fullscreen"}
+                >
+                  {browserFs ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+                  <span>{browserFs ? "Exit" : "Full"}</span>
+                </button>
+              </div>
             </div>
-          </div>
-          <div className="table-fullscreen-body">{table}</div>
+          )}
+          <div className={tableOpen ? "table-fullscreen-body" : undefined}>{table}</div>
         </div>
       )}
     </div>

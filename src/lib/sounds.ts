@@ -18,6 +18,7 @@ let ctx: AudioContext | null = null;
 let muted = false;
 let unlocked = false;
 let unlockPromise: Promise<void> | null = null;
+const unlockListeners = new Set<() => void>();
 
 function getCtx() {
   if (typeof window === "undefined") return null;
@@ -38,6 +39,22 @@ export function loadMutePreference() {
 
 export function isMuted() {
   return muted;
+}
+
+export function isAudioUnlocked() {
+  return unlocked;
+}
+
+export function onAudioUnlock(listener: () => void) {
+  unlockListeners.add(listener);
+  if (unlocked) listener();
+  return () => {
+    unlockListeners.delete(listener);
+  };
+}
+
+function notifyUnlocked() {
+  for (const listener of unlockListeners) listener();
 }
 
 export function setMuted(value: boolean) {
@@ -166,6 +183,7 @@ export async function unlockAudio() {
           src.connect(audio.destination);
           src.start(0);
           unlocked = true;
+          notifyUnlocked();
         }
       } catch {
         // Ignore — next gesture will retry
@@ -196,10 +214,12 @@ export function armAudioUnlock() {
     void unlockAudio();
   };
   window.addEventListener("pointerdown", unlock, { passive: true });
+  window.addEventListener("click", unlock, { passive: true });
   window.addEventListener("keydown", unlock);
   window.addEventListener("touchstart", unlock, { passive: true });
   return () => {
     window.removeEventListener("pointerdown", unlock);
+    window.removeEventListener("click", unlock);
     window.removeEventListener("keydown", unlock);
     window.removeEventListener("touchstart", unlock);
   };

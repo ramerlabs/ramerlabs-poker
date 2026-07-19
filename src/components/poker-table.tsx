@@ -10,8 +10,10 @@ import type { PublicTableState } from "@/lib/poker/types";
 import { DEFAULT_TURN_SECONDS } from "@/lib/poker/types";
 import {
   armAudioUnlock,
+  isAudioUnlocked,
   isMuted,
   loadMutePreference,
+  onAudioUnlock,
   playSfx,
   setMuted,
   unlockAudio,
@@ -314,6 +316,7 @@ export function PokerTable({
   const [dealerDealing, setDealerDealing] = useState(false);
   const [holeCardsVisible, setHoleCardsVisible] = useState(true);
   const [muted, setMutedState] = useState(false);
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [winnerVisible, setWinnerVisible] = useState(false);
   const [attentionOpen, setAttentionOpen] = useState(false);
   const [attentionAcked, setAttentionAcked] = useState(false);
@@ -334,7 +337,13 @@ export function PokerTable({
 
   useEffect(() => {
     setMutedState(loadMutePreference());
-    return armAudioUnlock();
+    setAudioUnlocked(isAudioUnlocked());
+    const stopUnlock = armAudioUnlock();
+    const stopListen = onAudioUnlock(() => setAudioUnlocked(true));
+    return () => {
+      stopUnlock();
+      stopListen();
+    };
   }, []);
 
   useEffect(() => {
@@ -451,10 +460,9 @@ export function PokerTable({
     }
   }, [holeCardsVisible, state.street, state.streetHoldUntil, state.seats, state.lastAction]);
 
-  // Deal / win sounds for anyone on the table page
+  // Table ambience for seated players AND spectators watching the room
   useEffect(() => {
     if (state.handNumber > lastHandRef.current && state.street === "preflop" && state.handNumber > 0) {
-      void unlockAudio();
       playSfx("deal");
       setTimeout(() => playSfx("deal"), 100);
       setTimeout(() => playSfx("deal"), 200);
@@ -487,7 +495,6 @@ export function PokerTable({
     const key = `${state.handNumber}-${state.winners.map((w) => w.userId).join(",")}`;
     if (key !== lastWinKey.current) {
       lastWinKey.current = key;
-      void unlockAudio();
       playSfx("win");
       setWinnerVisible(true);
     }
@@ -708,7 +715,7 @@ export function PokerTable({
     return () => clearInterval(id);
   }, [secondsLeft, waiting, state.actionSeat, canActNow, refresh]);
 
-  // Chips fly from the acting seat into the pot; SFX for every visible action
+  // Chips fly + action SFX for everyone watching (seated or spectator)
   useEffect(() => {
     const action = state.lastAction;
     if (!action) return;
@@ -716,7 +723,6 @@ export function PokerTable({
     if (key === lastActionKey.current) return;
     lastActionKey.current = key;
 
-    void unlockAudio();
     if (action.action === "fold") playSfx("fold");
     else if (action.action === "check") playSfx("check");
     else if (["bet", "raise", "call", "allin"].includes(action.action)) playSfx("chip");
@@ -870,6 +876,15 @@ export function PokerTable({
       playSfx("click");
       setTimeout(() => playSfx("chip"), 80);
     }
+  }
+
+  async function enableTableSound() {
+    setMuted(false);
+    setMutedState(false);
+    await unlockAudio();
+    setAudioUnlocked(isAudioUnlocked());
+    playSfx("click");
+    setTimeout(() => playSfx("chip"), 80);
   }
 
   // Your turn: always open action popup + alert
@@ -1164,17 +1179,25 @@ export function PokerTable({
               )}
             </>
           )}
-          <Button
-            variant="ghost"
-            className="!px-3 !py-2 text-xs"
-            onClick={() => {
-              toggleMute();
-            }}
-            title={muted ? "Unmute table sounds" : "Mute table sounds"}
-          >
-            {muted ? "🔇" : "🔊"}
-            {!compact && (muted ? " Sound off" : " Sound on")}
-          </Button>
+          {!audioUnlocked || muted ? (
+            <Button
+              variant="felt"
+              className="!px-3 !py-2 text-xs"
+              onClick={() => void enableTableSound()}
+              title="Enable deal, chip, and win sounds — works while watching too"
+            >
+              Enable sound
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              className="!px-3 !py-2 text-xs"
+              onClick={() => toggleMute()}
+              title="Mute table sounds"
+            >
+              🔊{!compact && " Sound on"}
+            </Button>
+          )}
           {!waiting && state.actionSeat != null && (
             <>
               <span className="text-sm text-[var(--muted)]">
