@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getGlobalCurrency } from "@/lib/currency";
 import { formatMoney, toNumber } from "@/lib/utils";
 import { Badge, Button, Panel } from "@/components/ui";
+import { ClubCashoutPanel } from "@/components/club-cashout-panel";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -47,6 +48,8 @@ export default async function DashboardPage() {
           <p className="mt-2 text-sm text-[var(--muted)]">Funded via USDT / GCash gateways</p>
         </Panel>
       </div>
+
+      <ClubCashoutPanel cashCurrency={cashCurrency} />
 
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-2xl font-semibold">Open rooms</h2>
