@@ -9,7 +9,7 @@ type Params = { params: Promise<{ id: string }> };
 export async function POST(_req: Request, { params }: Params) {
   const { id } = await params;
   const authResult = await requireAdmin();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const room = await prisma.room.findUnique({ where: { id } });
   if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
@@ -30,7 +30,7 @@ const kickSchema = z.object({
 export async function DELETE(req: Request, { params }: Params) {
   const { id } = await params;
   const authResult = await requireAdmin();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const body = await req.json().catch(() => ({}));
   const parsed = kickSchema.safeParse(body);

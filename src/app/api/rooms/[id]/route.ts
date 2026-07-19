@@ -28,7 +28,7 @@ const PURGE_INTERVAL_MS = 60_000;
 export async function GET(req: Request, { params }: Params) {
   const { id } = await params;
   const authResult = await requireUser();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const invite = new URL(req.url).searchParams.get("invite");
   const light = new URL(req.url).searchParams.get("light") === "1";

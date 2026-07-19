@@ -7,7 +7,7 @@ type Params = { params: Promise<{ id: string }> };
 export async function POST(_req: Request, { params }: Params) {
   const { id } = await params;
   const authResult = await requireUser();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   await touchPresence(id, authResult.userId);
   await purgeStalePlayers(id);

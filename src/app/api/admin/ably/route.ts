@@ -12,7 +12,7 @@ const schema = z.object({
 
 export async function GET() {
   const authResult = await requireAdmin();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const settings = await prisma.platformSettings.upsert({
     where: { id: "default" },
@@ -44,7 +44,7 @@ export async function GET() {
 
 export async function PUT(req: Request) {
   const authResult = await requireAdmin();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const parsed = schema.safeParse(await req.json());
   if (!parsed.success) {

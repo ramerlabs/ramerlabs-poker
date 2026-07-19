@@ -21,8 +21,20 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const res = await fetch("/api/license/status", { cache: "no-store" });
+      if (!res.ok) {
+        setStatus({
+          valid: false,
+          message:
+            "A valid license is required to use RamerLabs Poker. Buy a license at ramerlabs.com.",
+          buy_url: "https://ramerlabs.com/product/ramerlabs-poker/",
+        });
+        return null;
+      }
       const data = (await res.json()) as LicenseStatus;
-      setStatus(data);
+      setStatus({
+        ...data,
+        valid: data.valid === true,
+      });
       return data;
     } catch {
       setStatus({

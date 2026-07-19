@@ -25,7 +25,7 @@ const createSchema = z.object({
 
 export async function GET() {
   const authResult = await requireAdmin();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const rooms = await prisma.room.findMany({
     include: {
@@ -60,7 +60,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const authResult = await requireAdmin();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const parsed = createSchema.safeParse(await req.json());
   if (!parsed.success) {
@@ -133,7 +133,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   const authResult = await requireAdmin();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const body = z
     .object({

@@ -18,7 +18,7 @@ const updateSchema = z.object({
 
 export async function GET() {
   const authResult = await requireAdmin();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const currencies = await prisma.currencyConfig.findMany({ orderBy: { code: "asc" } });
   return NextResponse.json({
@@ -32,7 +32,7 @@ export async function GET() {
 
 export async function PUT(req: Request) {
   const authResult = await requireAdmin();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const parsed = updateSchema.safeParse(await req.json());
   if (!parsed.success) {

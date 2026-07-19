@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/session";
 
 export async function GET() {
   const authResult = await requireUser();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const cfg = await getAblyConfig();
   if (!(await isAblyEnabled())) {

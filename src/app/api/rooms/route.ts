@@ -22,7 +22,7 @@ const createSchema = z.object({
 
 export async function GET() {
   const authResult = await requireLicenseOptionalUser();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
   const viewerId = authResult.userId;
   const isAdmin = authResult.role === "ADMIN";
 
@@ -55,7 +55,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const authResult = await requireUser();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const parsed = createSchema.safeParse(await req.json());
   if (!parsed.success) {

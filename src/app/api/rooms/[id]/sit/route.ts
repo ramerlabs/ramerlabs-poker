@@ -16,7 +16,7 @@ const schema = z.object({
 export async function POST(req: Request, { params }: Params) {
   const { id } = await params;
   const authResult = await requireUser();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const parsed = schema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {

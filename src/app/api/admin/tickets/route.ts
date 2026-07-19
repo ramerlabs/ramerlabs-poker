@@ -11,7 +11,7 @@ import type { TicketCategory, TicketPriority, TicketStatus } from "@prisma/clien
 
 export async function GET(req: Request) {
   const authResult = await requireAdmin();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const url = new URL(req.url);
   const status = url.searchParams.get("status");

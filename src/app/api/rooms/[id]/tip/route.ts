@@ -13,7 +13,7 @@ const schema = z.object({
 export async function POST(req: Request, { params }: Params) {
   const { id } = await params;
   const authResult = await requireUser();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   let amount: number | undefined;
   try {

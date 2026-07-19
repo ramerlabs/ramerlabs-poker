@@ -13,7 +13,7 @@ const schema = z.object({
 export async function POST(req: Request) {
   try {
     const license = await requireLicense();
-    if ("error" in license) return license.error;
+    if (!license.ok) return license.error;
 
     const body = await req.json();
     const parsed = schema.safeParse(body);

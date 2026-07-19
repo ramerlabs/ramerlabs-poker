@@ -9,7 +9,7 @@ type Params = { params: Promise<{ id: string }> };
 export async function GET(_req: Request, { params }: Params) {
   const { id } = await params;
   const authResult = await requireUser();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const ticket = await prisma.supportTicket.findUnique({
     where: { id },
@@ -59,7 +59,7 @@ const patchSchema = z.object({
 export async function PATCH(req: Request, { params }: Params) {
   const { id } = await params;
   const authResult = await requireUser();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const ticket = await prisma.supportTicket.findUnique({ where: { id } });
   if (!ticket) return NextResponse.json({ error: "Ticket not found" }, { status: 404 });

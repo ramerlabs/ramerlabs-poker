@@ -14,7 +14,7 @@ const schema = z.object({
 export async function POST(req: Request, { params }: Params) {
   const { id } = await params;
   const authResult = await requireUser();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const parsed = schema.safeParse(await req.json().catch(() => ({})));
   const room = await prisma.room.findUnique({ where: { id } });
@@ -41,7 +41,7 @@ export async function POST(req: Request, { params }: Params) {
 export async function DELETE(_req: Request, { params }: Params) {
   const { id } = await params;
   const authResult = await requireUser();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   await leaveWaitlist(id, authResult.userId);
   return NextResponse.json({ ok: true });

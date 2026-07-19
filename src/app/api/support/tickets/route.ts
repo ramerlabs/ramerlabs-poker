@@ -13,7 +13,7 @@ const createSchema = z.object({
 
 export async function GET() {
   const authResult = await requireUser();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const tickets = await prisma.supportTicket.findMany({
     where: { userId: authResult.userId },
@@ -36,7 +36,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const authResult = await requireUser();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const parsed = createSchema.safeParse(await req.json());
   if (!parsed.success) {

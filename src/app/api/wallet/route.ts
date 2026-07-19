@@ -5,7 +5,7 @@ import { toNumber } from "@/lib/utils";
 
 export async function GET() {
   const authResult = await requireUser();
-  if ("error" in authResult && authResult.error) return authResult.error;
+  if ("error" in authResult) return authResult.error;
 
   const user = await prisma.user.findUnique({
     where: { id: authResult.userId },

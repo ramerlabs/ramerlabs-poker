@@ -226,10 +226,13 @@ export async function deactivate() {
   return { success: true, message: "License deactivated.", buy_url: BUY_URL };
 }
 
-export async function requireLicense() {
+export async function requireLicense(): Promise<
+  { ok: true } | { ok: false; error: NextResponse }
+> {
   const result = await validateStored(false);
-  if (result.valid) return { ok: true as const };
+  if (result.valid) return { ok: true };
   return {
+    ok: false,
     error: NextResponse.json(
       {
         error: "License required",
