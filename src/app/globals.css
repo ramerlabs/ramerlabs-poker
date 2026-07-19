@@ -667,14 +667,14 @@ a {
 }
 
 /*
- * Floating turn panel — fixed under the board / above your seat.
- * No dim/blur backdrop so deal animations & community cards stay visible.
+ * Floating turn panel — above the community board, clear of flying cards.
+ * No dim/blur backdrop so the felt stays fully visible.
  */
 .table-action-dock.is-popup {
   position: fixed;
   left: 50%;
-  /* Sit just below community cards (board is mid-felt); keep rail/seats readable */
-  top: clamp(52%, 58vh, 66%);
+  /* Park above the board (board sits mid/low felt ~50–60vh) */
+  top: clamp(18%, 26vh, 34%);
   bottom: auto;
   z-index: 55;
   width: min(calc(100vw - 1.5rem), 520px);
@@ -689,8 +689,9 @@ a {
 }
 
 .table-action-dock.is-popup.is-compact {
-  top: auto;
-  bottom: calc(0.65rem + env(safe-area-inset-bottom, 0px));
+  /* Still keep board readable on phones — float under the dealer, above flop */
+  top: clamp(16%, 22vh, 30%);
+  bottom: auto;
   width: min(calc(100vw - 0.75rem), 560px);
 }
 

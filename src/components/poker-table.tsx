@@ -1149,13 +1149,16 @@ export function PokerTable({
   }
 
   function toggleMute() {
-    void unlockAudio();
     const next = !isMuted();
     setMuted(next);
     setMutedState(next);
     if (!next) {
-      playSfx("click");
-      setTimeout(() => playSfx("chip"), 80);
+      void (async () => {
+        await unlockAudio();
+        setAudioUnlocked(isAudioUnlocked());
+        playSfx("click");
+        setTimeout(() => playSfx("chip"), 80);
+      })();
     }
   }
 
@@ -1163,6 +1166,8 @@ export function PokerTable({
     setMuted(false);
     setMutedState(false);
     await unlockAudio();
+    // Retry once — some browsers stay suspended until a second resume in the same gesture
+    if (!isAudioUnlocked()) await unlockAudio();
     setAudioUnlocked(isAudioUnlocked());
     playSfx("click");
     setTimeout(() => playSfx("chip"), 80);
@@ -1541,13 +1546,13 @@ export function PokerTable({
             </>
           )}
           <Button
-            variant={muted ? "ghost" : "felt"}
+            variant={muted || !audioUnlocked ? "ghost" : "felt"}
             className="!px-3 !py-2 text-xs"
             onClick={() => {
-              if (muted) {
+              // "Sound on" but not unlocked yet — unlock, don't mute (old bug silenced the table)
+              if (muted || !audioUnlocked) {
                 void enableTableSound();
               } else {
-                void unlockAudio();
                 toggleMute();
               }
             }}
@@ -1556,11 +1561,12 @@ export function PokerTable({
                 ? "Unmute table sounds"
                 : audioUnlocked
                   ? "Mute table sounds"
-                  : "Sound is on — tap once if your browser blocked audio"
+                  : "Tap to enable table sounds (browser blocked audio)"
             }
           >
-            {muted ? "🔇" : "🔊"}
-            {!compact && (muted ? " Sound off" : " Sound on")}
+            {muted ? "🔇" : audioUnlocked ? "🔊" : "🔈"}
+            {!compact &&
+              (muted ? " Sound off" : audioUnlocked ? " Sound on" : " Tap for sound")}
           </Button>
           {!waiting && state.actionSeat != null && (
             <>

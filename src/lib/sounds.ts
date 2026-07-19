@@ -183,23 +183,28 @@ export async function unlockAudio() {
   const audio = getCtx();
   if (!audio) return;
 
+  // Always try resume — don't skip when a previous attempt left unlocked=false
   if (!unlockPromise) {
     unlockPromise = (async () => {
       try {
-        if (audio.state === "suspended") {
+        if (audio.state === "suspended" || audio.state === "interrupted") {
           await audio.resume();
         }
-        if (!unlocked && audio.state === "running") {
+        // Prime destination so later oscillators aren't silent on some browsers
+        if (audio.state === "running") {
           const buffer = audio.createBuffer(1, 1, audio.sampleRate);
           const src = audio.createBufferSource();
+          const g = audio.createGain();
+          g.gain.value = 0.001;
           src.buffer = buffer;
-          src.connect(audio.destination);
+          src.connect(g);
+          g.connect(audio.destination);
           src.start(0);
           unlocked = true;
           notifyUnlocked();
         }
       } catch {
-        // Ignore — next gesture will retry
+        unlocked = false;
       } finally {
         unlockPromise = null;
       }
@@ -207,6 +212,19 @@ export async function unlockAudio() {
   }
 
   await unlockPromise;
+
+  // If still suspended after await, force one more resume attempt
+  if (audio.state !== "running") {
+    try {
+      await audio.resume();
+      if (audio.state === "running" && !unlocked) {
+        unlocked = true;
+        notifyUnlocked();
+      }
+    } catch {
+      // next gesture retries
+    }
+  }
 }
 
 export function playSfx(name: Sfx) {
