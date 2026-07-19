@@ -29,9 +29,13 @@ type MemoryCache = {
 let memoryCache: MemoryCache | null = null;
 
 function siteUrl(): string {
+  // Always prefer the public production domain so activate/validate match
+  // the domain already licensed on ramerlabs.com (preview URLs used to desync).
   const raw =
     process.env.LICENSE_SITE_URL?.trim() ||
-    process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim() ||
+    (process.env.VERCEL || process.env.NODE_ENV === "production"
+      ? "https://poker.ramerlabs.com"
+      : "") ||
     process.env.NEXTAUTH_URL?.trim() ||
     process.env.AUTH_URL?.trim() ||
     "";
@@ -39,9 +43,6 @@ function siteUrl(): string {
   if (cleaned) {
     if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) return cleaned;
     return `https://${cleaned}`;
-  }
-  if (process.env.VERCEL || process.env.NODE_ENV === "production") {
-    return "https://poker.ramerlabs.com";
   }
   return "http://localhost:3000";
 }
@@ -125,22 +126,30 @@ export async function getCachedLicenseValid(): Promise<boolean> {
 }
 
 export async function getPublicLicenseStatus() {
-  if (licenseSkip()) {
+  try {
+    if (licenseSkip()) {
+      return publicStatus({
+        valid: true,
+        skipped: true,
+        message: "License check skipped (dev).",
+      });
+    }
+
+    const state = await readState();
+    const valid = Boolean(state?.valid && state?.license_key);
+    return publicStatus({
+      valid,
+      message: valid
+        ? "License active."
+        : "A valid license is required to use RamerLabs Poker. Buy a license at ramerlabs.com.",
+    });
+  } catch {
+    // Never 500 the gate — DB blips must not kick licensed domains offline
     return publicStatus({
       valid: true,
-      skipped: true,
-      message: "License check skipped (dev).",
+      message: "License check deferred.",
     });
   }
-
-  const state = await readState();
-  const valid = Boolean(state?.valid && state?.license_key);
-  return publicStatus({
-    valid,
-    message: valid
-      ? "License active."
-      : "A valid license is required to use RamerLabs Poker. Buy a license at ramerlabs.com.",
-  });
 }
 
 export async function activate(licenseKey: string) {
@@ -162,14 +171,22 @@ export async function activate(licenseKey: string) {
 
   const success = Boolean(ok && (data.success === true || data.valid === true));
   if (!success) {
-    return {
-      success: false,
-      message:
-        (typeof data.message === "string" && data.message) ||
-        (typeof data.error === "string" && data.error) ||
-        "Invalid license key. Buy a license at ramerlabs.com.",
-      buy_url: BUY_URL,
-    };
+    const message =
+      (typeof data.message === "string" && data.message) ||
+      (typeof data.error === "string" && data.error) ||
+      "Invalid license key. Buy a license at ramerlabs.com.";
+    // Domain already bound on the license server — treat as activated locally
+    const alreadyBound =
+      /\b(already\s+(activated|active|registered|licensed)|this\s+site\s+is\s+already|domain\s+already)\b/i.test(
+        message,
+      );
+    if (!alreadyBound) {
+      return {
+        success: false,
+        message,
+        buy_url: BUY_URL,
+      };
+    }
   }
 
   const now = new Date().toISOString();
@@ -182,7 +199,9 @@ export async function activate(licenseKey: string) {
 
   return {
     success: true,
-    message: (typeof data.message === "string" && data.message) || "License activated.",
+    message:
+      (typeof data.message === "string" && data.message) ||
+      "License activated.",
     buy_url: BUY_URL,
   };
 }

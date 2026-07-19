@@ -12,6 +12,34 @@ type LicenseStatus = {
   site_name?: string;
 };
 
+const CACHE_KEY = "rl-poker-license-ok";
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function readLicenseCache(): LicenseStatus | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { at?: number; status?: LicenseStatus };
+    if (!parsed?.at || Date.now() - parsed.at > CACHE_TTL_MS) return null;
+    if (parsed.status?.valid !== true) return null;
+    return parsed.status;
+  } catch {
+    return null;
+  }
+}
+
+function writeLicenseCache(status: LicenseStatus) {
+  try {
+    if (status.valid === true) {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), status }));
+    } else {
+      localStorage.removeItem(CACHE_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export function LicenseGate({ children }: { children: React.ReactNode }) {
   const toast = useToast();
   const [status, setStatus] = useState<LicenseStatus | null>(null);
@@ -20,14 +48,27 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
   const [key, setKey] = useState("");
 
   const refresh = useCallback(async () => {
+    const apply = (data: LicenseStatus) => {
+      const next = { ...data, valid: data.valid === true };
+      setStatus(next);
+      writeLicenseCache(next);
+      return next;
+    };
+
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10_000);
+    const timer = setTimeout(() => controller.abort(), 12_000);
     try {
       const res = await fetch("/api/license/status", {
         cache: "no-store",
         signal: controller.signal,
       });
       if (!res.ok) {
+        // Never lock out on a flaky HTTP error if we already activated this browser
+        const cached = readLicenseCache();
+        if (cached) {
+          setStatus(cached);
+          return cached;
+        }
         setStatus({
           valid: false,
           message:
@@ -37,15 +78,22 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
         return null;
       }
       const data = (await res.json()) as LicenseStatus;
-      setStatus({
-        ...data,
-        valid: data.valid === true,
-      });
-      return data;
+      return apply(data);
     } catch {
+      // Timeout / offline — keep last known good activation (domain already licensed)
+      const cached = readLicenseCache();
+      if (cached) {
+        setStatus({
+          ...cached,
+          message: cached.message || "License active (cached).",
+        });
+        return cached;
+      }
+      // No cache: soft-allow so a transient status blip cannot brick the whole site.
+      // Gameplay APIs still enforce requireLicense() against the DB.
       setStatus({
-        valid: false,
-        message: "Could not verify license. Buy a license at ramerlabs.com.",
+        valid: true,
+        message: "License check deferred — reconnecting…",
         buy_url: "https://ramerlabs.com/product/ramerlabs-poker/",
       });
       return null;
@@ -56,6 +104,12 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Instant paint from cache while status loads
+    const cached = readLicenseCache();
+    if (cached) {
+      setStatus(cached);
+      setLoading(false);
+    }
     void refresh();
   }, [refresh]);
 
@@ -82,6 +136,11 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
       }
       toast.success(data.message || "License activated.");
       setKey("");
+      writeLicenseCache({
+        valid: true,
+        message: data.message || "License active.",
+        buy_url: data.buy_url,
+      });
       await refresh();
     } catch {
       toast.error("Could not activate license. Buy a license at ramerlabs.com.");
@@ -90,7 +149,7 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
     }
   }
 
-  if (loading) {
+  if (loading && !status?.valid) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] text-[var(--muted)]">
         Checking license…
