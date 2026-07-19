@@ -39,6 +39,14 @@ export async function getPlatformSettings() {
 }
 
 export async function loadTableState(roomId: string): Promise<PokerTableState | null> {
+  const row = await loadGameRow(roomId);
+  return row?.state ?? null;
+}
+
+/** Load table state with optimistic-concurrency version. */
+export async function loadGameRow(
+  roomId: string,
+): Promise<{ state: PokerTableState; version: number } | null> {
   const row = await prisma.gameState.findUnique({ where: { roomId } });
   if (!row) return null;
   const state = row.state as unknown as PokerTableState;
@@ -60,41 +68,89 @@ export async function loadTableState(roomId: string): Promise<PokerTableState | 
   if (state.actionSeat != null && state.turnStartedAt == null) {
     state.turnStartedAt = Date.now();
   }
-  return state;
+  return { state, version: row.version };
 }
 
+export type SaveTableResult = { ok: true; version: number } | { ok: false; version: number };
+
+/**
+ * Persist table state. When expectedVersion is set, uses compare-and-swap so
+ * concurrent ticks/actions cannot overwrite each other with divergent hands.
+ */
 export async function saveTableState(
   roomId: string,
   state: PokerTableState,
-  opts?: { syncStacks?: boolean },
-) {
-  const saved = await prisma.gameState.upsert({
-    where: { roomId },
-    create: {
-      roomId,
-      state: state as unknown as Prisma.InputJsonValue,
-      version: 1,
-    },
-    update: {
-      state: state as unknown as Prisma.InputJsonValue,
-      version: { increment: 1 },
-    },
-  });
+  opts?: { syncStacks?: boolean; expectedVersion?: number },
+): Promise<SaveTableResult> {
+  const payload = state as unknown as Prisma.InputJsonValue;
 
-  // Stack sync is expensive (one DB write per seat) — only between hands by default
-  const betweenHands =
-    state.street === "waiting" || state.street === "complete" || state.street === "showdown";
-  if (opts?.syncStacks === true || (opts?.syncStacks !== false && betweenHands)) {
-    await syncStacksToDb(roomId, state);
+  if (opts?.expectedVersion != null) {
+    const updated = await prisma.gameState.updateMany({
+      where: { roomId, version: opts.expectedVersion },
+      data: {
+        state: payload,
+        version: { increment: 1 },
+      },
+    });
+    if (updated.count === 0) {
+      const latest = await prisma.gameState.findUnique({
+        where: { roomId },
+        select: { version: true },
+      });
+      return { ok: false, version: latest?.version ?? opts.expectedVersion };
+    }
+    const version = opts.expectedVersion + 1;
+
+    const betweenHands =
+      state.street === "waiting" || state.street === "complete" || state.street === "showdown";
+    if (opts?.syncStacks === true || (opts?.syncStacks !== false && betweenHands)) {
+      await syncStacksToDb(roomId, state);
+    }
+
+    void publishRoomEvent(roomId, "state", {
+      version,
+      updatedAt: new Date().toISOString(),
+    });
+    return { ok: true, version };
   }
 
-  // Notify clients without blocking the request (Ably can be slow)
-  void publishRoomEvent(roomId, "state", {
-    version: saved.version,
-    updatedAt: saved.updatedAt.toISOString(),
+  // Create-or-blind-update (legacy callers). Prefer CAS when possible.
+  const existing = await prisma.gameState.findUnique({
+    where: { roomId },
+    select: { version: true },
   });
+  if (!existing) {
+    const saved = await prisma.gameState.create({
+      data: {
+        roomId,
+        state: payload,
+        version: 1,
+      },
+    });
+    const betweenHands =
+      state.street === "waiting" || state.street === "complete" || state.street === "showdown";
+    if (opts?.syncStacks === true || (opts?.syncStacks !== false && betweenHands)) {
+      await syncStacksToDb(roomId, state);
+    }
+    void publishRoomEvent(roomId, "state", {
+      version: saved.version,
+      updatedAt: saved.updatedAt.toISOString(),
+    });
+    return { ok: true, version: saved.version };
+  }
 
-  return saved;
+  // Re-enter with CAS against the version we just read
+  return saveTableState(roomId, state, {
+    ...opts,
+    expectedVersion: existing.version,
+  });
+}
+
+class StaleGameStateError extends Error {
+  constructor() {
+    super("STALE_GAME_STATE");
+    this.name = "StaleGameStateError";
+  }
 }
 
 async function syncStacksToDb(roomId: string, state: PokerTableState) {
@@ -399,93 +455,159 @@ export async function tickRoomDebounced(roomId: string, minIntervalMs = 200): Pr
 /**
  * Keep tables automatic: one bot action per tick (with think time), then
  * auto-deal the next hand when 2+ players are seated.
+ *
+ * Uses compare-and-swap versions so two players' polls cannot invent different
+ * hands/boards on serverless (each instance used to tick independently).
  */
 export async function tickRoom(roomId: string): Promise<PokerTableState> {
-  // Roster sync is expensive — only every few seconds, not every poll
-  const rosterAge = Date.now() - (lastRosterSyncAt.get(roomId) ?? 0);
-  let state =
-    rosterAge > 4000
-      ? await syncRosterToLiveState(roomId)
-      : await ensureGameState(roomId);
-  if (rosterAge > 4000) lastRosterSyncAt.set(roomId, Date.now());
+  const row = await loadGameRow(roomId);
+  if (!row) return ensureGameState(roomId);
 
-  state = await enforceTurnTimeout(roomId);
-
-  if (releaseStreetHoldIfReady(state)) {
-    await saveTableState(roomId, state);
-    state = await ensureGameState(roomId);
+  // Claim this tick: bump version with unchanged state. Losers exit immediately.
+  const claim = await saveTableState(roomId, row.state, {
+    expectedVersion: row.version,
+    syncStacks: false,
+  });
+  if (!claim.ok) {
+    return (await loadTableState(roomId)) ?? row.state;
   }
 
-  // Staggered flop cards (legacy), then turn/river runout
-  {
-    const communityStep = continueCommunityDealIfReady(state);
-    if (communityStep) {
-      const before = state;
-      state = communityStep;
-      await saveTableState(roomId, state);
-      await recordRakeIfNeeded(roomId, before, state);
-      await afterHandRoster(roomId, before, state);
-      state = await ensureGameState(roomId);
-    }
-  }
+  let version = claim.version;
+  let state = structuredClone(row.state) as PokerTableState;
 
-  {
-    const runout = continueRunoutIfReady(state);
-    if (runout) {
-      const before = state;
-      state = runout;
-      await saveTableState(roomId, state);
-      await recordRakeIfNeeded(roomId, before, state);
-      await afterHandRoster(roomId, before, state);
-      state = await ensureGameState(roomId);
-    }
-  }
+  const commit = async (next: PokerTableState, syncStacks?: boolean) => {
+    const saved = await saveTableState(roomId, next, {
+      expectedVersion: version,
+      syncStacks,
+    });
+    if (!saved.ok) throw new StaleGameStateError();
+    version = saved.version;
+    state = next;
+  };
 
-  // Catch up bot chain quickly — they should not sit until the human turn timer ends
-  for (let i = 0; i < 10; i += 1) {
-    const prev = state;
-    const result = await advanceOneBotIfReady(state);
-    if (!result.acted) break;
-    state = result.state;
-    // Mid-hand bot chain: skip stack sync (expensive N seat writes per action)
-    await saveTableState(roomId, state, { syncStacks: false });
-    await recordRakeIfNeeded(roomId, prev, state);
-    await afterHandRoster(roomId, prev, state);
-    // Only re-read from DB when the hand ended (roster may have changed)
-    if (state.street === "complete" || state.street === "waiting") {
-      state = await ensureGameState(roomId);
-    }
-  }
-
-  if (state.street === "waiting" || state.street === "complete") {
-    // Pause after a finished hand so the winner banner can show
-    if (state.street === "complete" && state.winners?.length) {
-      const row = await prisma.gameState.findUnique({ where: { roomId } });
-      const age = row ? Date.now() - row.updatedAt.getTime() : 9999;
-      if (age < 3200) return state;
+  try {
+    // Roster sync is expensive — only every few seconds
+    const rosterAge = Date.now() - (lastRosterSyncAt.get(roomId) ?? 0);
+    if (rosterAge > 4000) {
+      const before = state.seats.map((s) => `${s.userId}:${s.seat}`).join("|");
+      state = await rebuildSeatsFromDb(roomId, state);
+      const after = state.seats.map((s) => `${s.userId}:${s.seat}`).join("|");
+      if (before !== after) await commit(state);
+      lastRosterSyncAt.set(roomId, Date.now());
     }
 
-    if (liveSeatCount(state) >= 2) {
-      try {
-        state = await startRoomHand(roomId);
-      } catch {
-        // Not enough stacks / room closed — leave waiting
+    if (releaseStreetHoldIfReady(state)) {
+      await commit(state);
+    }
+
+    // Auto-fold timed-out humans (and stuck bots)
+    for (let guard = 0; guard < 8; guard += 1) {
+      if (
+        state.actionSeat == null ||
+        state.turnStartedAt == null ||
+        (state.streetHoldUntil && Date.now() < state.streetHoldUntil) ||
+        state.street === "waiting" ||
+        state.street === "complete" ||
+        state.street === "showdown"
+      ) {
+        break;
       }
-    } else {
-      const { reconcileTableRoster } = await import("@/lib/table-roster");
-      await reconcileTableRoster(roomId);
-      state = await ensureGameState(roomId);
+      const actor = state.seats.find((s) => s.seat === state.actionSeat);
+      if (!actor) break;
+      const graceMs = isBotUserId(actor.userId) ? 0 : 12_000;
+      const limitMs = (state.turnSeconds || DEFAULT_TURN_SECONDS) * 1000 + graceMs;
+      if (Date.now() - state.turnStartedAt < limitMs) break;
+
+      const prev = state;
+      if (isBotUserId(actor.userId)) {
+        const botResult = await advanceOneBotIfReady(state);
+        if (!botResult.acted) break;
+        state = botResult.state;
+      } else {
+        try {
+          state = applyAction(state, actor.userId, "fold");
+        } catch {
+          break;
+        }
+      }
+      await commit(state, false);
+      await recordRakeIfNeeded(roomId, prev, state);
+      await afterHandRoster(roomId, prev, state);
+    }
+
+    // Staggered flop / turn / river
+    {
+      const communityStep = continueCommunityDealIfReady(state);
+      if (communityStep) {
+        const before = state;
+        state = communityStep;
+        await commit(state);
+        await recordRakeIfNeeded(roomId, before, state);
+        await afterHandRoster(roomId, before, state);
+      }
+    }
+    {
+      const runout = continueRunoutIfReady(state);
+      if (runout) {
+        const before = state;
+        state = runout;
+        await commit(state);
+        await recordRakeIfNeeded(roomId, before, state);
+        await afterHandRoster(roomId, before, state);
+      }
+    }
+
+    // Bot chain
+    for (let i = 0; i < 10; i += 1) {
+      const prev = state;
+      const result = await advanceOneBotIfReady(state);
+      if (!result.acted) break;
+      state = result.state;
+      await commit(state, false);
+      await recordRakeIfNeeded(roomId, prev, state);
+      await afterHandRoster(roomId, prev, state);
+      if (state.street === "complete" || state.street === "waiting") break;
+    }
+
+    if (state.street === "waiting" || state.street === "complete") {
+      if (state.street === "complete" && state.winners?.length) {
+        const ageRow = await prisma.gameState.findUnique({ where: { roomId } });
+        const age = ageRow ? Date.now() - ageRow.updatedAt.getTime() : 9999;
+        if (age < 3200) return state;
+      }
+
       if (liveSeatCount(state) >= 2) {
         try {
+          // startRoomHand does its own load/save — release claim by using it carefully
           state = await startRoomHand(roomId);
         } catch {
-          /* ignore */
+          /* not enough stacks */
+        }
+      } else {
+        const { reconcileTableRoster } = await import("@/lib/table-roster");
+        await reconcileTableRoster(roomId);
+        const refreshed = await loadGameRow(roomId);
+        if (refreshed) {
+          state = refreshed.state;
+          version = refreshed.version;
+        }
+        if (liveSeatCount(state) >= 2) {
+          try {
+            state = await startRoomHand(roomId);
+          } catch {
+            /* ignore */
+          }
         }
       }
     }
-  }
 
-  return state;
+    return state;
+  } catch (e) {
+    if (e instanceof StaleGameStateError) {
+      return (await loadTableState(roomId)) ?? state;
+    }
+    throw e;
+  }
 }
 
 /** Nudge every open room so bot-only tables keep dealing without a seated human. */
@@ -510,8 +632,10 @@ export async function startRoomHand(roomId: string) {
   const { reconcileTableRoster } = await import("@/lib/table-roster");
   await reconcileTableRoster(roomId);
 
-  let state = await ensureGameState(roomId);
-  state = await rebuildSeatsFromDb(roomId, state);
+  const row = await loadGameRow(roomId);
+  if (!row) throw new Error("Room state missing");
+  let state = await rebuildSeatsFromDb(roomId, structuredClone(row.state) as PokerTableState);
+  let version = row.version;
 
   const room = await prisma.room.findUnique({ where: { id: roomId } });
   if (room) {
@@ -536,12 +660,15 @@ export async function startRoomHand(roomId: string) {
 
   const prev = state;
   state = startHand(state);
-  // Do not rush bots — tickRoom advances one action at a time with think delay
   await prisma.room.update({ where: { id: roomId }, data: { status: "ACTIVE" } });
-  await saveTableState(roomId, state);
+  const saved = await saveTableState(roomId, state, { expectedVersion: version });
+  if (!saved.ok) {
+    // Another writer already dealt or advanced — return their state
+    return (await loadTableState(roomId)) ?? state;
+  }
   await recordRakeIfNeeded(roomId, prev, state);
   await afterHandRoster(roomId, prev, state);
-  return (await ensureGameState(roomId)) ?? state;
+  return (await loadTableState(roomId)) ?? state;
 }
 
 export async function performAction(
@@ -550,27 +677,49 @@ export async function performAction(
   action: PlayerAction,
   amount?: number,
 ) {
-  let prev = await ensureGameState(roomId);
+  const row = await loadGameRow(roomId);
+  if (!row) throw new Error("Room state missing");
+  let prev = structuredClone(row.state) as PokerTableState;
+  let version = row.version;
+
   if (releaseStreetHoldIfReady(prev)) {
-    await saveTableState(roomId, prev);
-    prev = await ensureGameState(roomId);
+    const holdSave = await saveTableState(roomId, prev, { expectedVersion: version });
+    if (!holdSave.ok) throw new Error("Table updated — try again");
+    version = holdSave.version;
+    const fresh = await loadGameRow(roomId);
+    if (fresh) {
+      prev = fresh.state;
+      version = fresh.version;
+    }
   }
 
   const actor = prev.seats.find((s) => s.seat === prev.actionSeat);
   const isCurrentActor = actor?.userId === userId;
 
-  // If this player is acting now, don't fold them first — accept Call/Fold with latency grace
   if (!isCurrentActor) {
     prev = await enforceTurnTimeout(roomId);
+    const fresh = await loadGameRow(roomId);
+    if (fresh) {
+      prev = fresh.state;
+      version = fresh.version;
+    }
   } else if (prev.turnStartedAt != null) {
     const limitMs = (prev.turnSeconds || DEFAULT_TURN_SECONDS) * 1000 + 12_000;
     if (Date.now() - prev.turnStartedAt >= limitMs) {
       prev = await enforceTurnTimeout(roomId);
+      const fresh = await loadGameRow(roomId);
+      if (fresh) {
+        prev = fresh.state;
+        version = fresh.version;
+      }
     }
   }
 
   const next = applyAction(prev, userId, action, amount ?? 0);
-  await saveTableState(roomId, next);
+  const saved = await saveTableState(roomId, next, { expectedVersion: version });
+  if (!saved.ok) {
+    throw new Error("Table updated — try your action again");
+  }
   await recordRakeIfNeeded(roomId, prev, next);
   await afterHandRoster(roomId, prev, next);
 

@@ -607,6 +607,7 @@ export function PokerTable({
   const refreshInflight = useRef<Promise<void> | null>(null);
   const refreshQueued = useRef(false);
   const lastPlayerCountRef = useRef(initialPlayers.length);
+  const lastStateVersionRef = useRef(0);
   const onPlayersChangedRef = useRef(onPlayersChanged);
   onPlayersChangedRef.current = onPlayersChanged;
 
@@ -646,14 +647,19 @@ export function PokerTable({
           return;
         }
         const json = await readJson<{
-          game?: { state?: PublicTableState };
+          game?: { state?: PublicTableState; version?: number };
           room?: { players?: RoomPlayer[]; chatEnabled?: boolean };
           chats?: TableChatBubble[];
         }>(res);
         setLatencyMs(Math.min(ms, 9999));
         setConnFails(0);
         if (json.game?.state) {
-          setState(json.game.state);
+          const ver = json.game.version ?? 0;
+          // Never apply an older server snapshot over a newer one
+          if (ver >= lastStateVersionRef.current) {
+            lastStateVersionRef.current = ver;
+            setState(json.game.state);
+          }
         }
         if (json.room?.players) {
           const nextPlayers = json.room.players;
@@ -685,7 +691,19 @@ export function PokerTable({
   useEffect(() => {
     let client: Ably.Realtime | null = null;
     let poll: ReturnType<typeof setInterval> | null = null;
+    let tickPoll: ReturnType<typeof setInterval> | null = null;
     let cancelled = false;
+
+    function startPolling() {
+      // Mostly read-only so both players share one server truth.
+      poll = setInterval(() => {
+        void refresh({ tick: false });
+      }, 650);
+      // Occasional tick advances bots/timeouts (CAS prevents divergent hands).
+      tickPoll = setInterval(() => {
+        void refresh({ tick: true });
+      }, 1800);
+    }
 
     async function setup() {
       try {
@@ -709,24 +727,21 @@ export function PokerTable({
             const data = message.data as TableChatBubble;
             if (data?.id) ingestChat(data);
           });
-          poll = setInterval(() => {
-            void refresh({ tick: true });
-          }, 700);
+          startPolling();
           return;
         }
       } catch {
         // Fall through to polling
       }
       if (cancelled) return;
-      poll = setInterval(() => {
-        void refresh({ tick: true });
-      }, 750);
+      startPolling();
     }
 
     void setup();
     return () => {
       cancelled = true;
       if (poll) clearInterval(poll);
+      if (tickPoll) clearInterval(tickPoll);
       client?.close();
     };
   }, [roomId, refresh, ingestChat]);
