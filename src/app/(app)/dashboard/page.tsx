@@ -27,6 +27,7 @@ export default async function DashboardPage() {
         </h1>
         <p className="mt-2 text-[var(--muted)]">
           Your balances and open tables. Credits for free play — cash for private real-money rooms.
+          Come back every day for <strong className="text-[var(--gold-soft)]">+2,000 free system credits</strong>.
         </p>
       </div>
 

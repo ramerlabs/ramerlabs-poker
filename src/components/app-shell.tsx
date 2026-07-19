@@ -7,6 +7,7 @@ import { KeyRound, LayoutDashboard, LifeBuoy, LogOut, Shield, Spade, Users, Wall
 import { cn, formatMoney } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui";
+import { DailyRewardClaimer } from "@/components/daily-reward-claimer";
 
 const links = [
   { href: "/dashboard", label: "Lobby", icon: LayoutDashboard },
@@ -26,17 +27,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/wallet")
-      .then((r) => r.json())
-      .then((json) => {
-        if (!active || !json.wallet) return;
-        setWallet({
-          credits: json.wallet.creditsBalance,
-          cash: json.wallet.realMoneyBalance,
-          currency: json.wallet.currentCurrency,
-        });
-      })
-      .catch(() => undefined);
+    const loadWallet = () => {
+      fetch("/api/wallet")
+        .then((r) => r.json())
+        .then((json) => {
+          if (!active || !json.wallet) return;
+          setWallet({
+            credits: json.wallet.creditsBalance,
+            cash: json.wallet.realMoneyBalance,
+            currency: json.wallet.currentCurrency,
+          });
+        })
+        .catch(() => undefined);
+    };
+    loadWallet();
     fetch("/api/club/mine")
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
@@ -46,13 +50,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .catch(() => {
         if (active) setIsClubOwner(false);
       });
+    window.addEventListener("rl-wallet-refresh", loadWallet);
     return () => {
       active = false;
+      window.removeEventListener("rl-wallet-refresh", loadWallet);
     };
   }, [pathname]);
 
   return (
     <div className="min-h-screen">
+      <DailyRewardClaimer />
       <header className="sticky top-0 z-40 border-b border-[var(--line)] bg-[rgba(7,11,18,0.82)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 md:px-6">
           <Link href="/dashboard" className="flex items-center gap-2">

@@ -96,6 +96,8 @@ model User {
   /// Pending secret while user confirms setup with a code.
   totpTempSecret    String?
   totpEnabled       Boolean        @default(false)
+  /// Last time the player claimed the daily free-credits reward (system CREDITS).
+  lastDailyRewardAt DateTime?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
   roomsCreated      Room[]         @relation("RoomCreator")

@@ -10,12 +10,12 @@ import {
 } from "react";
 import { Toast, type ToastTone } from "@/components/toast";
 
-type ToastState = { text: string; tone: ToastTone; id: number };
+type ToastState = { text: string; tone: ToastTone; id: number; durationMs?: number };
 
 type ToastApi = {
-  show: (text: string, tone?: ToastTone) => void;
-  success: (text: string) => void;
-  error: (text: string) => void;
+  show: (text: string, tone?: ToastTone, durationMs?: number) => void;
+  success: (text: string, durationMs?: number) => void;
+  error: (text: string, durationMs?: number) => void;
 };
 
 const ToastContext = createContext<ToastApi | null>(null);
@@ -25,15 +25,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const clear = useCallback(() => setToast(null), []);
 
-  const show = useCallback((text: string, tone: ToastTone = "success") => {
-    setToast({ text, tone, id: Date.now() });
+  const show = useCallback((text: string, tone: ToastTone = "success", durationMs?: number) => {
+    setToast({ text, tone, id: Date.now(), durationMs });
   }, []);
 
   const api = useMemo<ToastApi>(
     () => ({
       show,
-      success: (text: string) => show(text, "success"),
-      error: (text: string) => show(text, "error"),
+      success: (text: string, durationMs?: number) => show(text, "success", durationMs),
+      error: (text: string, durationMs?: number) => show(text, "error", durationMs),
     }),
     [show],
   );
@@ -45,6 +45,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         key={toast?.id ?? "empty"}
         message={toast?.text ?? null}
         tone={toast?.tone}
+        durationMs={toast?.durationMs}
         onClose={clear}
       />
     </ToastContext.Provider>
