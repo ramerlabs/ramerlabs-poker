@@ -87,16 +87,9 @@ npm run db:seed
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000) and **create an account** via Register — new players start with **1,000 credits**.
 
-### Seed accounts
-
-| Email | Password | Role |
-| --- | --- | --- |
-| admin@ramerlabs.com | password123 | ADMIN |
-| player@ramerlabs.com | password123 | USER |
-
-New registrations receive **1,000 credits**.
+For your own deploy, create the first admin in the database (or promote a registered user) after seed — do not ship shared demo logins on a public instance.
 
 ### Environment
 

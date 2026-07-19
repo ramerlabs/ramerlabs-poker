@@ -55,9 +55,6 @@ function LoginForm() {
           Register
         </Link>
       </p>
-      <p className="mt-3 text-xs text-[var(--muted)]">
-        Demo: admin@ramerlabs.com / password123
-      </p>
     </Panel>
   );
 }
