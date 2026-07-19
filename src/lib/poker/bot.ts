@@ -16,13 +16,14 @@ export function botSkillPercentFor(userId: string) {
   return 30 + (hashSeed(userId) % 21);
 }
 
-/** Think time before a bot acts. */
+/** Think time before a bot acts — kept short so multi-bot hands stay snappy. */
 export function botThinkMs(state: PokerTableState, userId: string) {
   const seed = `${userId}:${state.handNumber}:${state.street}:${state.actionSeat}:${state.pot}`;
   const h = hashSeed(seed);
   const skill = botSkillPercentFor(userId);
-  const base = 1600 + Math.floor(skill * 10);
-  return base + (h % 2000);
+  // ~0.35–0.95s (was ~1.9–4.1s)
+  const base = 350 + Math.floor(skill * 4);
+  return base + (h % 450);
 }
 
 function rankValue(card: Card) {

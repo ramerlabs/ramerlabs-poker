@@ -405,7 +405,7 @@ export async function tickRoom(roomId: string): Promise<PokerTableState> {
   }
 
   // Catch up overdue bots in one tick so the table can't freeze at timer 0
-  for (let i = 0; i < 4; i += 1) {
+  for (let i = 0; i < 6; i += 1) {
     const prev = state;
     const result = await advanceOneBotIfReady(state);
     if (!result.acted) break;
@@ -421,7 +421,7 @@ export async function tickRoom(roomId: string): Promise<PokerTableState> {
     if (state.street === "complete" && state.winners?.length) {
       const row = await prisma.gameState.findUnique({ where: { roomId } });
       const age = row ? Date.now() - row.updatedAt.getTime() : 9999;
-      if (age < 5000) return state;
+      if (age < 3200) return state;
     }
 
     if (liveSeatCount(state) >= 2) {

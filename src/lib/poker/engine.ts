@@ -95,12 +95,12 @@ function needsAction(state: PokerTableState, seat: SeatState) {
 }
 
 function streetPauseMs(street: PokerTableState["street"], pendingExtra = 0) {
-  if (pendingExtra > 0) return 1100; // between flop cards
+  if (pendingExtra > 0) return 450; // between flop cards
   if (street === "preflop") return 0;
-  if (street === "flop") return 1600;
-  if (street === "turn") return 2000;
-  if (street === "river") return 2000;
-  return 1200;
+  if (street === "flop") return 700;
+  if (street === "turn") return 800;
+  if (street === "river") return 800;
+  return 500;
 }
 
 function clearStreetSeatActions(state: PokerTableState) {
@@ -183,7 +183,7 @@ export function continueCommunityDealIfReady(state: PokerTableState): PokerTable
   }
 
   // Flop complete — start betting
-  next.streetHoldUntil = Date.now() + 900;
+  next.streetHoldUntil = Date.now() + 400;
   const first = nextOccupiedSeat(
     next,
     next.dealerSeat,
@@ -389,7 +389,7 @@ export function startHand(state: PokerTableState): PokerTableState {
   next.currentBet = Math.max(sb.bet, bb.bet);
 
   // Hold betting until hole cards finish animating (short pause)
-  const dealMs = Math.min(3200, 900 + ordered.length * 280);
+  const dealMs = Math.min(1600, 400 + ordered.length * 120);
   next.streetHoldUntil = Date.now() + dealMs;
 
   markTurnClock(
