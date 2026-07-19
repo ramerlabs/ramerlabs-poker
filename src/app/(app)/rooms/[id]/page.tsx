@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, Minimize2, Spade, X } from "lucide-react";
 import { PokerTable } from "@/components/poker-table";
@@ -55,6 +55,7 @@ type RoomPayload = {
 
 export default function RoomDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const [data, setData] = useState<RoomPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
@@ -297,6 +298,8 @@ export default function RoomDetailPage() {
         connectedRef.current = false;
         setHint("Left the table. Stack returned to your wallet.");
         if (isMobile) closeTable();
+        // Navigate back to lobby so the table is fully cleared
+        router.push("/rooms");
       }
       await load();
     } catch (err) {
