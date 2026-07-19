@@ -6,6 +6,7 @@ import {
   continueCommunityDealIfReady,
   continueRunoutIfReady,
   forceFold,
+  recoverIfNoActionSeat,
   releaseStreetHoldIfReady,
   startHand,
   toPublicState,
@@ -375,9 +376,12 @@ async function advanceOneBotIfReady(state: PokerTableState): Promise<{
   }
 
   // Clock starts after deal/reveal — bots only need a brief think, not the full turn timer
-  const turnStartedAt = state.turnStartedAt;
+  releaseStreetHoldIfReady(state);
+  let turnStartedAt = state.turnStartedAt;
   if (turnStartedAt == null) {
-    return { state, acted: false };
+    // Hold cleared but clock never started — unstick instead of freezing the table
+    state.turnStartedAt = Date.now();
+    turnStartedAt = state.turnStartedAt;
   }
   const thinkMs = botThinkMs(state, actor.userId);
   const waited = Date.now() - turnStartedAt;
@@ -503,6 +507,10 @@ export async function tickRoom(roomId: string): Promise<PokerTableState> {
     }
 
     if (releaseStreetHoldIfReady(state)) {
+      await commit(state);
+    }
+
+    if (recoverIfNoActionSeat(state)) {
       await commit(state);
     }
 

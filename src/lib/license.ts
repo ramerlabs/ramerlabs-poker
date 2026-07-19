@@ -19,12 +19,12 @@ type LicenseState = {
 };
 
 function siteUrl(): string {
-  return (
-    process.env.LICENSE_SITE_URL ||
-    process.env.NEXTAUTH_URL ||
-    process.env.AUTH_URL ||
-    "http://localhost:3000"
-  ).replace(/\/$/, "");
+  const raw =
+    process.env.LICENSE_SITE_URL?.trim() ||
+    process.env.NEXTAUTH_URL?.trim() ||
+    process.env.AUTH_URL?.trim() ||
+    "http://localhost:3000";
+  return raw.replace(/\/$/, "");
 }
 
 function licenseSkip(): boolean {
@@ -186,6 +186,15 @@ export async function validateStored(force = false): Promise<{
 
     const message =
       (typeof data.message === "string" && data.message) || "License is not valid.";
+    // Only invalidate on an explicit rejection from the license server.
+    // HTTP/network ambiguity must not lock production tables.
+    if (!ok && state.valid) {
+      return {
+        valid: true,
+        buy_url: BUY_URL,
+        message: "License server unreachable — using cached activation.",
+      };
+    }
     await writeState({
       ...state,
       valid: false,

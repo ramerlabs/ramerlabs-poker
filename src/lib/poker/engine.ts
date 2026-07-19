@@ -24,9 +24,47 @@ function markTurnClock(state: PokerTableState, seat: number | null) {
   if (!state.turnSeconds) state.turnSeconds = DEFAULT_TURN_SECONDS;
 }
 
+const MAX_STREET_HOLD_MS = 15_000;
+
+/**
+ * Clear absurd/expired deal holds and ensure the actor has a running clock.
+ * A stuck streetHoldUntil (hours ahead) previously froze every table forever.
+ */
+export function sanitizeTableClocks(state: PokerTableState): boolean {
+  let changed = false;
+  const now = Date.now();
+
+  if (state.streetHoldUntil != null) {
+    const holdMs = state.streetHoldUntil - now;
+    if (holdMs <= 0 || holdMs > MAX_STREET_HOLD_MS) {
+      state.streetHoldUntil = null;
+      changed = true;
+    }
+  }
+
+  if (
+    state.turnStartedAt != null &&
+    (state.turnStartedAt > now + 5_000 || now - state.turnStartedAt > 600_000)
+  ) {
+    state.turnStartedAt = state.actionSeat != null ? now : null;
+    changed = true;
+  }
+
+  if (
+    state.actionSeat != null &&
+    state.turnStartedAt == null &&
+    (state.streetHoldUntil == null || now >= state.streetHoldUntil)
+  ) {
+    state.turnStartedAt = now;
+    changed = true;
+  }
+
+  return changed;
+}
+
 /** Clear expired deal/reveal holds and start the turn clock when ready. */
 export function releaseStreetHoldIfReady(state: PokerTableState): boolean {
-  let changed = false;
+  let changed = sanitizeTableClocks(state);
   if (state.streetHoldUntil != null && Date.now() >= state.streetHoldUntil) {
     state.streetHoldUntil = null;
     changed = true;
@@ -509,19 +547,71 @@ export function applyAction(
     (s) => !s.folded && !s.allIn && !s.sittingOut && s.bet < next.currentBet,
   );
 
-  const nextSeat = nextOccupiedSeat(
-    next,
-    seat.seat,
-    (s) => !s.folded && !s.allIn && !s.sittingOut && (s.bet < next.currentBet || needsActionRound(next, s, seat.userId)),
-  );
-
   if (stillToAct.length === 0 && bettingRoundComplete(next, seat.userId)) {
     advanceStreet(next);
   } else {
-    markTurnClock(next, nextSeat);
+    const nextSeat = nextOccupiedSeat(
+      next,
+      seat.seat,
+      (s) =>
+        !s.folded &&
+        !s.allIn &&
+        !s.sittingOut &&
+        (s.bet < next.currentBet || needsActionRound(next, s, seat.userId)),
+    );
+    if (nextSeat == null) {
+      // No legal actor left — close the betting round instead of freezing.
+      advanceStreet(next);
+    } else {
+      markTurnClock(next, nextSeat);
+    }
   }
 
   return next;
+}
+
+/**
+ * If a hand has no actionSeat mid-round (bad check-round / null seat),
+ * pick the next actor or advance the street so the table cannot freeze.
+ */
+export function recoverIfNoActionSeat(state: PokerTableState): boolean {
+  if (state.actionSeat != null) return false;
+  if (
+    state.street === "waiting" ||
+    state.street === "complete" ||
+    state.street === "showdown"
+  ) {
+    return false;
+  }
+
+  sanitizeTableClocks(state);
+  const live = contesting(state).filter((s) => !s.allIn);
+  if (live.length <= 1) {
+    finishHand(state);
+    return true;
+  }
+
+  if (state.currentBet === 0) {
+    if (live.every((s) => s.lastAction != null)) {
+      advanceStreet(state);
+      return true;
+    }
+    const next = live.find((s) => s.lastAction == null);
+    if (next) {
+      markTurnClock(state, next.seat);
+      return true;
+    }
+  } else {
+    const behind = live.find((s) => s.bet < state.currentBet);
+    if (!behind) {
+      advanceStreet(state);
+      return true;
+    }
+    markTurnClock(state, behind.seat);
+    return true;
+  }
+
+  return false;
 }
 
 /** Fold a player even if it is not their turn (disconnect / leave). */
@@ -558,34 +648,20 @@ export function forceFold(state: PokerTableState, userId: string): PokerTableSta
 function needsActionRound(state: PokerTableState, seat: SeatState, justActedUserId: string) {
   if (seat.userId === justActedUserId) return false;
   if (state.currentBet === 0) {
-    // Everyone gets one chance to check/bet when no bet open
-    return state.lastAction?.userId !== seat.userId;
+    // Check-round: only seats that have not yet acted this street
+    return seat.lastAction == null;
   }
   return seat.bet < state.currentBet;
 }
 
-function bettingRoundComplete(state: PokerTableState, justActedUserId: string) {
+function bettingRoundComplete(state: PokerTableState, _justActedUserId: string) {
   const live = contesting(state).filter((s) => !s.allIn);
   if (live.length === 0) return true;
   if (live.some((s) => s.bet < state.currentBet)) return false;
 
-  // When currentBet is 0, require that action has returned past the first actor after a full orbit.
-  // Simplified: if no one faces a bet and we have a last action, close when next would be someone who already matched.
   if (state.currentBet === 0) {
-    const actionable = contesting(state).filter((s) => !s.allIn);
-    // Close after the last player before dealer acts when all checks
-    const next = nextOccupiedSeat(
-      state,
-      actionable.find((s) => s.userId === justActedUserId)?.seat ?? state.dealerSeat,
-      (s) => !s.folded && !s.allIn && !s.sittingOut,
-    );
-    // If next player is the first who could have opened and everyone checked, complete
-    const first = nextOccupiedSeat(
-      state,
-      state.street === "preflop" ? state.bigBlindSeat : state.dealerSeat,
-      (s) => !s.folded && !s.allIn && !s.sittingOut,
-    );
-    return next === first;
+    // All check-round actors have acted once
+    return live.every((s) => s.lastAction != null);
   }
 
   return true;
