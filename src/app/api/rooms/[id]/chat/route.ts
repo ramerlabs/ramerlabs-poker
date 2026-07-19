@@ -24,13 +24,17 @@ export async function POST(req: Request, { params }: Params) {
   try {
     await touchPresence(id, authResult.userId);
 
-    // Check if chat is enabled for this room
-    const room = await prisma.room.findUnique({
-      where: { id },
-      select: { chatEnabled: true },
-    });
-    if (room && !room.chatEnabled) {
-      return NextResponse.json({ error: "Chat is disabled for this table" }, { status: 403 });
+    // Best-effort chat toggle — never block chat if the schema/client is out of sync
+    try {
+      const room = await prisma.room.findUnique({
+        where: { id },
+        select: { chatEnabled: true },
+      });
+      if (room && room.chatEnabled === false) {
+        return NextResponse.json({ error: "Chat is disabled for this table" }, { status: 403 });
+      }
+    } catch {
+      // Ignore — allow chat if the column/client isn't ready yet
     }
 
     const message = await postTableChat(id, authResult.userId, parsed.data.text);

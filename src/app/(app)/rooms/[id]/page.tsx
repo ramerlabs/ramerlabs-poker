@@ -109,20 +109,15 @@ export default function RoomDetailPage() {
     return () => mq.removeEventListener("change", sync);
   }, []);
 
-  // Heartbeat while active on this page; idle players stop pinging and are purged after 5 min
+  // Heartbeat while this tab is visible. Do NOT disconnect in effect cleanup —
+  // React Strict Mode / Fast Refresh remounts were cashing players out mid-hand.
   useEffect(() => {
     const roomId = params.id;
     if (!roomId) return;
 
-    let lastActivityAt = Date.now();
-    const markActive = () => {
-      lastActivityAt = Date.now();
-    };
-
     const ping = () => {
       if (!connectedRef.current) return;
-      // Only refresh presence if the user interacted recently (not just an open idle tab)
-      if (Date.now() - lastActivityAt > 45_000) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       void fetch(`/api/rooms/${roomId}/presence`, {
         method: "POST",
         credentials: "include",
@@ -130,16 +125,17 @@ export default function RoomDetailPage() {
       });
     };
 
-    markActive();
     ping();
     const heart = setInterval(ping, 15_000);
 
-    window.addEventListener("pointerdown", markActive);
-    window.addEventListener("keydown", markActive);
-    window.addEventListener("touchstart", markActive, { passive: true });
-    window.addEventListener("focus", markActive);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") ping();
+    };
+    document.addEventListener("visibilitychange", onVisible);
 
-    const disconnect = () => {
+    // Only leave the seat when the tab/window is actually going away
+    const onPageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return; // bfcache — tab may come back
       if (!connectedRef.current) return;
       connectedRef.current = false;
       const url = `/api/rooms/${roomId}/disconnect`;
@@ -149,27 +145,13 @@ export default function RoomDetailPage() {
         void fetch(url, { method: "POST", credentials: "include", keepalive: true });
       }
     };
-
-    window.addEventListener("pagehide", disconnect);
-    window.addEventListener("beforeunload", disconnect);
+    window.addEventListener("pagehide", onPageHide);
 
     return () => {
       clearInterval(heart);
-      window.removeEventListener("pointerdown", markActive);
-      window.removeEventListener("keydown", markActive);
-      window.removeEventListener("touchstart", markActive);
-      window.removeEventListener("focus", markActive);
-      window.removeEventListener("pagehide", disconnect);
-      window.removeEventListener("beforeunload", disconnect);
-      // Navigating away from the room page
-      if (connectedRef.current) {
-        connectedRef.current = false;
-        void fetch(`/api/rooms/${roomId}/disconnect`, {
-          method: "POST",
-          credentials: "include",
-          keepalive: true,
-        });
-      }
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pagehide", onPageHide);
+      // Intentionally no disconnect here — remounts must not kick the player
     };
   }, [params.id]);
 

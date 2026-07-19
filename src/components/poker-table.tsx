@@ -364,6 +364,7 @@ export function PokerTable({
   const lastTurnKey = useRef<string>("");
   const autoFolding = useRef(false);
   const actingRef = useRef(false);
+  const [autoFoldNonce, setAutoFoldNonce] = useState(0);
   const attentionLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hadActableTurn = useRef(false);
   const voluntaryActRef = useRef(false);
@@ -773,15 +774,16 @@ export function PokerTable({
     return () => window.clearTimeout(id);
   }, [error]);
 
-  // Timer stuck at 0 for someone else — force server ticks until the hand moves
+  // Timer stuck at 0 — force server ticks so turn timeouts / bots keep moving.
+  // Also runs on our own turn (safety net if client auto-fold fails).
   useEffect(() => {
-    if (waiting || secondsLeft > 0 || state.actionSeat == null || canActNow) return;
+    if (waiting || secondsLeft > 0 || state.actionSeat == null) return;
     const id = setInterval(() => {
       void refresh({ tick: true, force: true });
     }, 500);
     void refresh({ tick: true, force: true });
     return () => clearInterval(id);
-  }, [secondsLeft, waiting, state.actionSeat, canActNow, refresh]);
+  }, [secondsLeft, waiting, state.actionSeat, refresh]);
 
   // Force server ticks when the hand is complete (winner shown) but next hand
   // hasn't dealt yet — the stuck-timer effect above doesn't fire when waiting.
@@ -916,10 +918,18 @@ export function PokerTable({
       }
       void refresh({ tick: false });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Action failed");
       if (fromSystem) {
-        setHint("Time’s up — you were folded by the system.");
-        dismissAttention({ timeout: true });
+        // Don't lock the UI on "Timed out" if the fold request failed —
+        // force a server tick so enforceTurnTimeout can finish the turn.
+        setTimeoutNotice(false);
+        setHint("Time’s up — syncing with table…");
+        void refresh({ tick: true, force: true });
+        // Re-trigger the auto-fold effect after a short delay (max ~3 attempts)
+        if (autoFoldNonce < 3) {
+          window.setTimeout(() => setAutoFoldNonce((n) => n + 1), 700);
+        }
+      } else {
+        setError(e instanceof Error ? e.message : "Action failed");
       }
     } finally {
       setBusy(false);
@@ -1007,6 +1017,7 @@ export function PokerTable({
       if (turnKey && turnKey !== lastTurnKey.current) {
         lastTurnKey.current = turnKey;
         voluntaryActRef.current = false;
+        setAutoFoldNonce(0);
         setAttentionAcked(false);
         setAttentionOpen(true);
         popupOpenedAtRef.current = Date.now();
@@ -1056,23 +1067,36 @@ export function PokerTable({
 
   // Auto-fold when timer hits 0 on your turn — but give 1.5s grace so the
   // popup actually appears before the fold fires (latency can eat the clock).
-  // Also skip if we already sent an action (actingRef — the server response may
-  // be delayed, don't double-fold).
+  // If we hit 0 during the grace window, schedule a retry after the remaining
+  // grace time — otherwise the effect never re-runs and the UI stays stuck at 0s.
   useEffect(() => {
-    if (!canActNow) return;
-    if (actingRef.current) return;
-    // Grace window: we must have had the popup open for at least 1.5s before folding
+    if (!canActNow || secondsLeft > 0 || busy || autoFolding.current || actingRef.current) {
+      return;
+    }
+
+    const GRACE_MS = 1500;
     const timeSincePopup = attentionOpen ? Date.now() - popupOpenedAtRef.current : 0;
-    if (secondsLeft > 0 || busy || autoFolding.current || timeSincePopup < 1500) return;
-    autoFolding.current = true;
-    setTimeoutNotice(true);
-    setAttentionLeaving(false);
-    setAttentionOpen(true);
-    setHint("Time’s up — auto-folding…");
-    playSfx("timeout");
-    void act("fold", undefined, true);
+    const remainingGrace = Math.max(0, GRACE_MS - timeSincePopup);
+
+    const fire = () => {
+      if (!canActNow || autoFolding.current || actingRef.current) return;
+      autoFolding.current = true;
+      setTimeoutNotice(true);
+      setAttentionLeaving(false);
+      setAttentionOpen(true);
+      setHint("Time’s up — auto-folding…");
+      playSfx("timeout");
+      void act("fold", undefined, true);
+    };
+
+    if (remainingGrace > 0) {
+      const id = window.setTimeout(fire, remainingGrace);
+      return () => clearTimeout(id);
+    }
+
+    fire();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [secondsLeft, canActNow, busy, attentionOpen]);
+  }, [secondsLeft, canActNow, busy, attentionOpen, autoFoldNonce]);
 
   // Repeat alert until muted or turn ends / timed out
   useEffect(() => {

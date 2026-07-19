@@ -250,7 +250,22 @@ export async function enforceTurnTimeout(roomId: string): Promise<PokerTableStat
     if (Date.now() - state.turnStartedAt < limitMs) break;
 
     const actor = state.seats.find((s) => s.seat === state.actionSeat);
-    if (!actor || isBotUserId(actor.userId)) break;
+    if (!actor) break;
+
+    // Bots are normally advanced by advanceOneBotIfReady; if they still exceed
+    // the human turn clock, force them forward so the table cannot freeze at 0s.
+    if (isBotUserId(actor.userId)) {
+      const botResult = await advanceOneBotIfReady(state);
+      if (!botResult.acted) break;
+      const prev = state;
+      state = botResult.state;
+      await saveTableState(roomId, state);
+      await recordRakeIfNeeded(roomId, prev, state);
+      await afterHandRoster(roomId, prev, state);
+      state = await ensureGameState(roomId);
+      guard += 1;
+      continue;
+    }
 
     const prev = state;
     try {
@@ -305,7 +320,10 @@ async function advanceOneBotIfReady(state: PokerTableState): Promise<{
     return { state, acted: false };
   }
   const thinkMs = botThinkMs(state, actor.userId);
-  if (Date.now() < turnStartedAt + thinkMs) {
+  const waited = Date.now() - turnStartedAt;
+  // Hard cap so a stuck bot can never freeze the table at "0s"
+  const botMaxMs = Math.min((state.turnSeconds || DEFAULT_TURN_SECONDS) * 1000, 4_000);
+  if (waited < thinkMs) {
     return { state, acted: false };
   }
 
@@ -320,7 +338,16 @@ async function advanceOneBotIfReady(state: PokerTableState): Promise<{
       try {
         next = applyAction(next, actor.userId, "fold");
       } catch {
-        return { state, acted: false };
+        // Last resort after hard cap — force-fold even if applyAction path is broken
+        if (waited >= botMaxMs) {
+          try {
+            next = forceFold(next, actor.userId);
+          } catch {
+            return { state, acted: false };
+          }
+        } else {
+          return { state, acted: false };
+        }
       }
     }
   }
@@ -336,9 +363,15 @@ const tickInflight = new Map<string, Promise<PokerTableState>>();
 const lastTickAt = new Map<string, number>();
 const lastRosterSyncAt = new Map<string, number>();
 
+/**
+ * Start a tick if needed. Never makes callers wait on an in-flight tick —
+ * waiting was stacking every light poll into 5–20s "NET WEAK" freezes.
+ */
 export async function tickRoomDebounced(roomId: string, minIntervalMs = 200): Promise<PokerTableState> {
   const existing = tickInflight.get(roomId);
-  if (existing) return existing;
+  if (existing) {
+    return ensureGameState(roomId);
+  }
 
   const last = lastTickAt.get(roomId) ?? 0;
   if (Date.now() - last < minIntervalMs) {
@@ -355,7 +388,9 @@ export async function tickRoomDebounced(roomId: string, minIntervalMs = 200): Pr
     });
 
   tickInflight.set(roomId, run);
-  return run;
+  // Return current state immediately; tick continues in background
+  void run.catch(() => {});
+  return ensureGameState(roomId);
 }
 
 /**
@@ -409,10 +444,14 @@ export async function tickRoom(roomId: string): Promise<PokerTableState> {
     const result = await advanceOneBotIfReady(state);
     if (!result.acted) break;
     state = result.state;
-    await saveTableState(roomId, state);
+    // Mid-hand bot chain: skip stack sync (expensive N seat writes per action)
+    await saveTableState(roomId, state, { syncStacks: false });
     await recordRakeIfNeeded(roomId, prev, state);
     await afterHandRoster(roomId, prev, state);
-    state = await ensureGameState(roomId);
+    // Only re-read from DB when the hand ended (roster may have changed)
+    if (state.street === "complete" || state.street === "waiting") {
+      state = await ensureGameState(roomId);
+    }
   }
 
   if (state.street === "waiting" || state.street === "complete") {
@@ -592,7 +631,8 @@ export async function getPublicGameState(
   viewerId?: string,
   options?: { tick?: boolean },
 ) {
-  // Light polls skip tick — prevents Ably echo + interval from stacking 30–70s waits
+  // tickRoomDebounced returns current state immediately and runs the tick in
+  // the background — awaiting a full tick here caused 5–20s NET WEAK freezes.
   const state =
     options?.tick === false
       ? await ensureGameState(roomId)

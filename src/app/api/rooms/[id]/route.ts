@@ -21,6 +21,10 @@ const roomInclude = {
   creator: { select: { id: true, name: true, email: true } },
 };
 
+/** Don't run expensive stale-player purge on every 1–2s light poll */
+const lastPurgeAt = new Map<string, number>();
+const PURGE_INTERVAL_MS = 60_000;
+
 export async function GET(req: Request, { params }: Params) {
   const { id } = await params;
   const authResult = await requireUser();
@@ -31,8 +35,12 @@ export async function GET(req: Request, { params }: Params) {
   // Only Ably echo should skip ticks — light polls still advance bots/timeouts
   const skipTick = new URL(req.url).searchParams.get("tick") === "0";
 
-  // Free idle seats; presence is refreshed only via /presence heartbeat + sit/actions
-  await purgeStalePlayers(id);
+  // Free idle seats (throttled) — presence is via /presence heartbeat + sit/actions
+  const purgeAge = Date.now() - (lastPurgeAt.get(id) ?? 0);
+  if (purgeAge >= PURGE_INTERVAL_MS) {
+    lastPurgeAt.set(id, Date.now());
+    void purgeStalePlayers(id).catch(() => {});
+  }
 
   const room = await prisma.room.findUnique({
     where: { id },
@@ -134,7 +142,17 @@ export async function GET(req: Request, { params }: Params) {
             : {}),
         },
     me: light
-      ? undefined
+      ? {
+          // Keep seat identity on light polls so the client never loses "who am I"
+          userId: authResult.userId,
+          seated,
+          seat: myPlayer?.seat ?? null,
+          waiting,
+          waitPosition: waiting ? waitPosition : null,
+          preferredSeat: waiting
+            ? (room.waitlist.find((w) => w.userId === authResult.userId)?.preferredSeat ?? null)
+            : null,
+        }
       : {
           userId: authResult.userId,
           seated,

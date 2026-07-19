@@ -5,14 +5,24 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Known ISO 4217 currency codes used by the platform. */
+const ISO_CURRENCIES = new Set([
+  "USD", "EUR", "GBP", "JPY", "PHP", "CAD", "AUD", "INR", "SGD", "MYR",
+]);
+
 export function formatMoney(amount: number | string, currency = "USD") {
   const value = typeof amount === "string" ? Number(amount) : amount;
+  const safe = Number.isFinite(value) ? value : 0;
+  if (!ISO_CURRENCIES.has(currency)) {
+    // Custom labels (e.g. "TIPS" for FREE-room tips) — format as plain number with label
+    return `${currency} ${safe.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(Number.isFinite(value) ? value : 0);
+  }).format(safe);
 }
 
 export function toNumber(value: { toString(): string } | number | string | null | undefined) {
