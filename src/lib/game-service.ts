@@ -59,6 +59,7 @@ export async function loadGameRow(
   if (state.streetHoldUntil === undefined) state.streetHoldUntil = null;
   if (state.pendingCommunityDeals == null) state.pendingCommunityDeals = 0;
   if (state.botSkillPercent == null) state.botSkillPercent = 50;
+  if (state.handEndedAt === undefined) state.handEndedAt = null;
   for (const seat of state.seats ?? []) {
     if (seat.lastAction === undefined) {
       seat.lastAction = seat.folded ? "fold" : seat.allIn ? "allin" : null;
@@ -486,9 +487,14 @@ export async function tickRoom(roomId: string): Promise<PokerTableState> {
   };
 
   try {
-    // Roster sync is expensive — only every few seconds
+    const betweenHands =
+      state.street === "waiting" ||
+      state.street === "complete" ||
+      state.street === "showdown";
+    // Roster sync is expensive mid-hand — between hands always sync so a
+    // freshly seated player can trigger auto-deal without waiting 4s.
     const rosterAge = Date.now() - (lastRosterSyncAt.get(roomId) ?? 0);
-    if (rosterAge > 4000) {
+    if (betweenHands || rosterAge > 4000) {
       const before = state.seats.map((s) => `${s.userId}:${s.seat}`).join("|");
       state = await rebuildSeatsFromDb(roomId, state);
       const after = state.seats.map((s) => `${s.userId}:${s.seat}`).join("|");
@@ -570,10 +576,14 @@ export async function tickRoom(roomId: string): Promise<PokerTableState> {
     }
 
     if (state.street === "waiting" || state.street === "complete") {
+      // Post-hand pause must use handEndedAt — tick claims refresh DB updatedAt
+      // every ~1–2s, which previously blocked auto-deal forever.
       if (state.street === "complete" && state.winners?.length) {
-        const ageRow = await prisma.gameState.findUnique({ where: { roomId } });
-        const age = ageRow ? Date.now() - ageRow.updatedAt.getTime() : 9999;
-        if (age < 3200) return state;
+        if (state.handEndedAt == null) {
+          // Legacy stuck rows (no timestamp): deal immediately.
+        } else if (Date.now() - state.handEndedAt < 3200) {
+          return state;
+        }
       }
 
       if (liveSeatCount(state) >= 2) {

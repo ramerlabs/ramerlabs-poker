@@ -75,6 +75,12 @@ export interface PokerTableState {
   pendingCommunityDeals: number;
   /** Bot planning strength 0–100 (admin-configured). */
   botSkillPercent: number;
+  /**
+   * Epoch ms when the hand moved to `complete` (winner overlay).
+   * Used for the post-hand pause — must not rely on DB `updatedAt`, because
+   * tick claims rewrite that row constantly and would block auto-deal forever.
+   */
+  handEndedAt: number | null;
 }
 
 /** Recommended cash-game think time. */

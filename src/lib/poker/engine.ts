@@ -261,6 +261,7 @@ function finishHand(state: PokerTableState) {
     state.winners = [{ userId: winner.userId, amount: state.pot, handName }];
     state.pot = 0;
     state.street = "complete";
+    state.handEndedAt = Date.now();
     return;
   }
 
@@ -283,6 +284,7 @@ function finishHand(state: PokerTableState) {
 
   state.pot = 0;
   state.street = "complete";
+  state.handEndedAt = Date.now();
 }
 
 function postBlind(seat: SeatState, amount: number) {
@@ -335,6 +337,7 @@ export function createWaitingState(
     streetHoldUntil: null,
     pendingCommunityDeals: 0,
     botSkillPercent: 50,
+    handEndedAt: null,
   };
 }
 
@@ -343,6 +346,7 @@ export function startHand(state: PokerTableState): PokerTableState {
   const seated = activeSeats(next).filter((s) => s.stack > 0);
   if (seated.length < 2) {
     next.street = "waiting";
+    next.handEndedAt = null;
     markTurnClock(next, null);
     return next;
   }
@@ -358,6 +362,7 @@ export function startHand(state: PokerTableState): PokerTableState {
   next.minRaise = next.bigBlind;
   next.streetHoldUntil = null;
   next.pendingCommunityDeals = 0;
+  next.handEndedAt = null;
 
   for (const seat of next.seats) {
     seat.bet = 0;
