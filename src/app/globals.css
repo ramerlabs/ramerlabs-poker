@@ -257,7 +257,8 @@ a {
   position: absolute;
   left: var(--from-x);
   top: var(--from-y);
-  z-index: 36;
+  /* Above the turn action popup so deal flights stay visible */
+  z-index: 70;
   pointer-events: none;
   width: 34px;
   height: 48px;
@@ -653,38 +654,6 @@ a {
   padding-bottom: 0.5rem;
 }
 
-/* Fixed overlay — never pushes the table/layout when your turn starts */
-.turn-action-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 160;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding: 0.75rem;
-  padding-bottom: calc(0.85rem + env(safe-area-inset-bottom, 0px));
-  pointer-events: none;
-}
-
-.turn-action-overlay.is-compact {
-  align-items: flex-end;
-}
-
-@media (min-width: 769px) {
-  .turn-action-overlay:not(.is-compact) {
-    align-items: center;
-    padding: 1.25rem;
-  }
-}
-
-.turn-action-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(4, 8, 14, 0.45);
-  backdrop-filter: blur(2px);
-  pointer-events: none;
-}
-
 .table-action-dock {
   position: relative;
   z-index: 40;
@@ -693,30 +662,46 @@ a {
   padding: 0.55rem 0.75rem;
   border-radius: 14px;
   border: 1px solid rgba(212, 168, 83, 0.3);
-  background: rgba(10, 14, 22, 0.88);
-  backdrop-filter: blur(10px);
+  background: rgba(10, 14, 22, 0.92);
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
 }
 
+/*
+ * Floating turn panel — fixed under the board / above your seat.
+ * No dim/blur backdrop so deal animations & community cards stay visible.
+ */
 .table-action-dock.is-popup {
-  width: min(100%, 560px);
+  position: fixed;
+  left: 50%;
+  /* Sit just below community cards (board is mid-felt); keep rail/seats readable */
+  top: clamp(52%, 58vh, 66%);
+  bottom: auto;
+  z-index: 55;
+  width: min(calc(100vw - 1.5rem), 520px);
   margin: 0;
+  transform: translate(-50%, 0);
   pointer-events: auto;
-  background: rgba(10, 14, 22, 0.96);
+  background: rgba(10, 14, 22, 0.94);
   box-shadow:
-    0 18px 48px rgba(0, 0, 0, 0.55),
+    0 14px 36px rgba(0, 0, 0, 0.5),
     0 0 0 1px rgba(212, 168, 83, 0.14) inset;
   animation: turn-action-pop 180ms ease-out;
+}
+
+.table-action-dock.is-popup.is-compact {
+  top: auto;
+  bottom: calc(0.65rem + env(safe-area-inset-bottom, 0px));
+  width: min(calc(100vw - 0.75rem), 560px);
 }
 
 @keyframes turn-action-pop {
   from {
     opacity: 0;
-    transform: translateY(12px) scale(0.98);
+    transform: translate(-50%, 10px) scale(0.98);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate(-50%, 0) scale(1);
   }
 }
 
@@ -729,7 +714,7 @@ a {
 
 .table-action-dock.is-popup.is-your-turn {
   box-shadow:
-    0 18px 48px rgba(0, 0, 0, 0.55),
+    0 14px 36px rgba(0, 0, 0, 0.5),
     0 0 0 1px rgba(212, 168, 83, 0.14) inset;
 }
 
@@ -2341,19 +2326,12 @@ body.table-play-mode .app-mobile-nav {
   padding: 0.4rem 0.55rem;
 }
 
-.poker-shell.is-fullscreen .turn-action-overlay.is-compact,
-.poker-shell.is-compact .turn-action-overlay.is-compact {
-  padding: 0;
-  padding-bottom: 0;
-}
-
-.poker-shell.is-fullscreen .table-action-dock.is-popup,
-.poker-shell.is-compact .table-action-dock.is-popup {
-  width: 100%;
-  max-width: none;
-  border-radius: 16px 16px 0 0;
-  padding: 0.55rem 0.65rem calc(0.55rem + env(safe-area-inset-bottom, 0px));
-  background: rgba(8, 12, 20, 0.97);
+.poker-shell.is-fullscreen .table-action-dock.is-popup.is-compact,
+.poker-shell.is-compact .table-action-dock.is-popup.is-compact {
+  width: min(calc(100vw - 0.5rem), 100%);
+  border-radius: 14px;
+  padding: 0.5rem 0.6rem;
+  background: rgba(8, 12, 20, 0.95);
 }
 
 .poker-shell.is-compact .action-bar {
