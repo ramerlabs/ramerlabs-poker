@@ -611,10 +611,10 @@ export function PokerTable({
   const ingestChat = useCallback((msg: TableChatBubble) => {
     if (!msg?.id || seenChatIds.current.has(msg.id)) return;
     const age = Date.now() - new Date(msg.createdAt).getTime();
-    if (Number.isFinite(age) && age > 5_500) return;
+    if (Number.isFinite(age) && age > 12_000) return;
     seenChatIds.current.add(msg.id);
     setChatBubbles((prev) => [...prev, msg]);
-    const remain = Number.isFinite(age) ? Math.max(900, 5_000 - age) : 5_000;
+    const remain = Number.isFinite(age) ? Math.max(900, 12_000 - age) : 12_000;
     window.setTimeout(() => {
       setChatBubbles((prev) => prev.filter((b) => b.id !== msg.id));
     }, remain);
