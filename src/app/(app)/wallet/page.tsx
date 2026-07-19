@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
+import { Toast, type ToastTone } from "@/components/toast";
 import { formatMoney } from "@/lib/utils";
 
 type WalletData = {
@@ -38,7 +39,9 @@ export default function WalletPage() {
   const [data, setData] = useState<WalletData | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
   const [displayName, setDisplayName] = useState("");
+  const clearToast = useCallback(() => setToast(null), []);
 
   async function load() {
     const res = await fetch("/api/wallet");
@@ -131,10 +134,14 @@ export default function WalletPage() {
     });
     const json = await res.json();
     if (!res.ok) {
-      setError(json.error || "Could not claim coupon");
+      const err = json.error || "Could not claim coupon";
+      setError(err);
+      setToast({ text: err, tone: "error" });
       return;
     }
-    setMessage(json.message);
+    const ok = json.message || "Coupon claimed successfully!";
+    setMessage(ok);
+    setToast({ text: ok, tone: "success" });
     e.currentTarget.reset();
     await load();
   }
@@ -146,6 +153,12 @@ export default function WalletPage() {
 
   return (
     <div className="space-y-6 animate-fade-up">
+      <Toast
+        message={toast?.text ?? null}
+        tone={toast?.tone}
+        onClose={clearToast}
+      />
+
       <div>
         <h1 className="text-4xl font-semibold text-[var(--gold-soft)]">Wallet</h1>
         <p className="mt-2 text-[var(--muted)]">
@@ -213,6 +226,12 @@ export default function WalletPage() {
           </div>
           <Button type="submit">Claim</Button>
         </form>
+        {message && !error && message.toLowerCase().includes("coupon") && (
+          <p className="mt-3 text-sm text-[var(--success)]">{message}</p>
+        )}
+        {error && (
+          <p className="mt-3 text-sm text-[var(--crimson)]">{error}</p>
+        )}
       </Panel>
 
       <div className="grid gap-4 lg:grid-cols-2">

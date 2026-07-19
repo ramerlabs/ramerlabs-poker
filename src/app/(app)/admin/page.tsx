@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
+import { Toast, type ToastTone } from "@/components/toast";
 import { formatMoney } from "@/lib/utils";
 import {
   TICKET_CATEGORIES,
@@ -121,10 +122,12 @@ export default function AdminPage() {
   const [currencyOptions, setCurrencyOptions] = useState<{ code: string; name: string }[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
   const [creating, setCreating] = useState(false);
   const [creatingCoupon, setCreatingCoupon] = useState(false);
   const [creatingClub, setCreatingClub] = useState(false);
   const [savingCurrency, setSavingCurrency] = useState(false);
+  const clearToast = useCallback(() => setToast(null), []);
 
   async function loadTickets(filters?: {
     status?: string;
@@ -459,14 +462,16 @@ export default function AdminPage() {
     const json = await res.json();
     setCreatingCoupon(false);
     if (!res.ok) {
-      setError(json.error || "Could not create coupon");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      const err = json.error || "Could not create coupon";
+      setError(err);
+      setToast({ text: err, tone: "error" });
       return;
     }
-    setMessage(`Coupon ${json.coupon.code} created`);
+    const ok = `Coupon ${json.coupon.code} created successfully`;
+    setMessage(ok);
+    setToast({ text: ok, tone: "success" });
     e.currentTarget.reset();
     setCouponKind("CREDITS");
-    window.scrollTo({ top: 0, behavior: "smooth" });
     await load();
   }
 
@@ -525,6 +530,12 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6 animate-fade-up">
+      <Toast
+        message={toast?.text ?? null}
+        tone={toast?.tone}
+        onClose={clearToast}
+      />
+
       <div>
         <h1 className="text-4xl font-semibold text-[var(--gold-soft)]">Admin</h1>
         <p className="mt-2 text-[var(--muted)]">
