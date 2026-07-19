@@ -109,7 +109,9 @@ model Room {
   targetBots  Int            @default(0)
   /// Bot skill / planning strength 0–100 (50 = balanced). Affects hand reading & bluffs.
   botSkillPercent Int        @default(50)
-  inviteCode  String?        @unique
+  /// When false, seated players cannot send table chat.
+  chatEnabled     Boolean    @default(true)
+  inviteCode      String?    @unique
   isPrivate   Boolean        @default(false)
   status      RoomStatus     @default(WAITING)
   creatorId   String

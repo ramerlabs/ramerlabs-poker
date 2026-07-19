@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
 import { CHAT_MAX_LEN, postTableChat } from "@/lib/table-chat";
 import { touchPresence } from "@/lib/table-roster";
 
@@ -22,6 +23,16 @@ export async function POST(req: Request, { params }: Params) {
 
   try {
     await touchPresence(id, authResult.userId);
+
+    // Check if chat is enabled for this room
+    const room = await prisma.room.findUnique({
+      where: { id },
+      select: { chatEnabled: true },
+    });
+    if (room && !room.chatEnabled) {
+      return NextResponse.json({ error: "Chat is disabled for this table" }, { status: 403 });
+    }
+
     const message = await postTableChat(id, authResult.userId, parsed.data.text);
     return NextResponse.json({ message });
   } catch (error) {

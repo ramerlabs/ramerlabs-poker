@@ -51,6 +51,7 @@ type AdminRoom = {
   maxPlayers: number;
   targetBots: number;
   botSkillPercent: number;
+  chatEnabled: boolean;
   isPrivate: boolean;
   inviteCode: string | null;
   status: string;
@@ -219,6 +220,18 @@ export default function AdminPage() {
     });
     if (res.ok) {
       setMessage("Table closed");
+      await load();
+    }
+  }
+
+  async function toggleChat(id: string, enabled: boolean) {
+    const res = await fetch("/api/admin/rooms", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, chatEnabled: !enabled }),
+    });
+    if (res.ok) {
+      setMessage(`Table chat ${!enabled ? "enabled" : "disabled"}`);
       await load();
     }
   }
@@ -586,7 +599,7 @@ export default function AdminPage() {
                 <p className="mt-1 text-xs text-[var(--muted)]">
                   {room.smallBlind}/{room.bigBlind} · Buy-in {room.buyIn} {room.currency} ·{" "}
                   {room.playerCount}/{room.maxPlayers} seated · Target bots {room.targetBots} ·
-                  Bot accuracy {room.botSkillPercent ?? 50}%
+                  Bot accuracy {room.botSkillPercent ?? 50}% · Chat {room.chatEnabled ? "ON" : "OFF"}
                   {room.inviteCode ? ` · Invite ${room.inviteCode}` : ""}
                 </p>
               </div>
@@ -602,6 +615,12 @@ export default function AdminPage() {
                   onClick={() => setBotSkill(room.id, room.botSkillPercent ?? 50)}
                 >
                   Accuracy
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => void toggleChat(room.id, room.chatEnabled)}
+                >
+                  Chat {room.chatEnabled ? "ON" : "OFF"}
                 </Button>
                 {room.status !== "CLOSED" && (
                   <Button variant="danger" onClick={() => closeTable(room.id)}>

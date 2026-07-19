@@ -22,6 +22,7 @@ type RoomPayload = {
     targetBots?: number;
     botCount?: number;
     humanCount?: number;
+    chatEnabled: boolean;
     isPrivate: boolean;
     inviteCode: string | null;
     creatorId: string;
@@ -370,6 +371,7 @@ export default function RoomDetailPage() {
       minBuyIn={data.me.minBuyIn ?? data.room.buyIn}
       currency={data.me.currency ?? data.room.currency}
       walletBalance={data.me.walletBalance ?? 0}
+      chatEnabled={data.room.chatEnabled}
       onPlayersChanged={() => void load()}
       onSitResult={(msg) => {
         setHint(msg);

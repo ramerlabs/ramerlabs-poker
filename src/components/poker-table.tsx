@@ -285,6 +285,7 @@ export function PokerTable({
   minBuyIn = 0,
   currency = "CREDITS",
   walletBalance = 0,
+  chatEnabled = true,
   onPlayersChanged,
   onSitResult,
 }: {
@@ -309,6 +310,8 @@ export function PokerTable({
   currency?: string;
   /** Viewer's wallet balance for this room's currency */
   walletBalance?: number;
+  /** Whether table chat is enabled (admin toggle) */
+  chatEnabled?: boolean;
   onPlayersChanged?: () => void;
   onSitResult?: (msg: string) => void;
 }) {
@@ -1886,7 +1889,7 @@ export function PokerTable({
         </div>
       </div>
 
-      {mySeat ? (
+      {mySeat && chatEnabled ? (
         <form className="table-chat-dock" onSubmit={(e) => void sendChat(e)}>
           <Input
             value={chatText}

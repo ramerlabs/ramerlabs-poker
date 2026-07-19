@@ -47,6 +47,7 @@ export async function GET() {
       maxPlayers: room.maxPlayers,
       targetBots: room.targetBots,
       botSkillPercent: room.botSkillPercent,
+      chatEnabled: room.chatEnabled,
       isPrivate: room.isPrivate,
       inviteCode: room.inviteCode,
       status: room.status,
@@ -141,6 +142,7 @@ export async function PATCH(req: Request) {
       name: z.string().min(2).max(64).optional(),
       botSkillPercent: z.number().int().min(0).max(100).optional(),
       targetBots: z.number().int().min(0).max(9).optional(),
+      chatEnabled: z.boolean().optional(),
     })
     .safeParse(await req.json());
 
@@ -157,6 +159,7 @@ export async function PATCH(req: Request) {
         ? { botSkillPercent: body.data.botSkillPercent }
         : {}),
       ...(body.data.targetBots != null ? { targetBots: body.data.targetBots } : {}),
+      ...(body.data.chatEnabled != null ? { chatEnabled: body.data.chatEnabled } : {}),
     },
   });
 
@@ -167,6 +170,7 @@ export async function PATCH(req: Request) {
       status: room.status,
       botSkillPercent: room.botSkillPercent,
       targetBots: room.targetBots,
+      chatEnabled: room.chatEnabled,
     },
   });
 }
