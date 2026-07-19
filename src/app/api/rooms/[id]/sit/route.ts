@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { claimSeat, touchPresence } from "@/lib/table-roster";
+import { publishRoomEvent } from "@/lib/ably";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -53,6 +54,11 @@ export async function POST(req: Request, { params }: Params) {
     );
     // Presence can finish after the client already gets the sit result
     void touchPresence(id, authResult.userId);
+    // Ensure other clients refresh roster even if saveTableState publish was skipped
+    void publishRoomEvent(id, "state", {
+      reason: result.seated ? "sit" : "seat_reserved",
+      userId: authResult.userId,
+    });
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not sit";

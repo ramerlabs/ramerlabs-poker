@@ -7,6 +7,9 @@ import { isBotUserId } from "@/lib/poker/bot";
 import { purgeStalePlayers } from "@/lib/table-roster";
 import { getRecentTableChats } from "@/lib/table-chat";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type Params = { params: Promise<{ id: string }> };
 
 const roomInclude = {
@@ -212,5 +215,9 @@ export async function GET(req: Request, { params }: Params) {
         },
     game,
     chats,
+  }, {
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+    },
   });
 }

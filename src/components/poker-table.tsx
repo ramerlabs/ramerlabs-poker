@@ -327,11 +327,30 @@ export function PokerTable({
   const [state, setState] = useState(initialState);
   const [players, setPlayers] = useState(initialPlayers);
 
-  // Sync state when the parent re-fetches and passes new props (e.g. after leave/sit)
+  // Parent props are a snapshot from page load. Live poll/Ably owns updates after mount.
+  // Never let a stale parent roster (fewer seats) wipe a fresher live roster.
   useEffect(() => {
-    setState(initialState);
-    setPlayers(initialPlayers);
-  }, [initialState, initialPlayers]);
+    setPlayers((prev) =>
+      initialPlayers.length >= prev.length ? initialPlayers : prev,
+    );
+  }, [initialPlayers]);
+
+  useEffect(() => {
+    setState((prev) => {
+      if (initialState.seats.length > prev.seats.length) return initialState;
+      if (initialState.handNumber > prev.handNumber) return initialState;
+      if (
+        initialState.handNumber === prev.handNumber &&
+        initialState.seats.length === prev.seats.length &&
+        (initialState.pot !== prev.pot ||
+          initialState.street !== prev.street ||
+          initialState.actionSeat !== prev.actionSeat)
+      ) {
+        return initialState;
+      }
+      return prev;
+    });
+  }, [initialState]);
 
   useEffect(() => {
     setChatOn(chatEnabled);
@@ -428,14 +447,6 @@ export function PokerTable({
       window.removeEventListener("offline", sync);
     };
   }, []);
-
-  useEffect(() => {
-    setPlayers(initialPlayers);
-  }, [initialPlayers]);
-
-  useEffect(() => {
-    setState(initialState);
-  }, [initialState]);
 
   // Dealer drops 2 hole cards to each seat before betting
   useEffect(() => {
@@ -594,6 +605,10 @@ export function PokerTable({
   }, [state.winners, state.street, state.handNumber, state.seats, seatLayout]);
 
   const refreshInflight = useRef<Promise<void> | null>(null);
+  const refreshQueued = useRef(false);
+  const lastPlayerCountRef = useRef(initialPlayers.length);
+  const onPlayersChangedRef = useRef(onPlayersChanged);
+  onPlayersChangedRef.current = onPlayersChanged;
 
   const ingestChat = useCallback((msg: TableChatBubble) => {
     if (!msg?.id || seenChatIds.current.has(msg.id)) return;
@@ -609,6 +624,9 @@ export function PokerTable({
 
   const refresh = useCallback(async (opts?: { tick?: boolean; force?: boolean }) => {
     if (refreshInflight.current && !opts?.force) {
+      // A refresh was requested while one is in flight — run again when it finishes
+      // so we don't keep serving a pre-sit snapshot forever.
+      refreshQueued.current = true;
       return refreshInflight.current;
     }
 
@@ -618,7 +636,10 @@ export function PokerTable({
     const run = (async () => {
       try {
         const qs = doTick ? "?light=1" : "?light=1&tick=0";
-        const res = await fetch(`/api/rooms/${roomId}${qs}`, { cache: "no-store" });
+        const res = await fetch(`/api/rooms/${roomId}${qs}`, {
+          cache: "no-store",
+          headers: { "Cache-Control": "no-cache" },
+        });
         const ms = Math.round(performance.now() - started);
         if (!res.ok) {
           setConnFails((n) => n + 1);
@@ -631,8 +652,17 @@ export function PokerTable({
         }>(res);
         setLatencyMs(Math.min(ms, 9999));
         setConnFails(0);
-        if (json.game?.state) setState(json.game.state);
-        if (json.room?.players) setPlayers(json.room.players);
+        if (json.game?.state) {
+          setState(json.game.state);
+        }
+        if (json.room?.players) {
+          const nextPlayers = json.room.players;
+          setPlayers(nextPlayers);
+          if (nextPlayers.length !== lastPlayerCountRef.current) {
+            lastPlayerCountRef.current = nextPlayers.length;
+            onPlayersChangedRef.current?.();
+          }
+        }
         if (typeof json.room?.chatEnabled === "boolean") setChatOn(json.room.chatEnabled);
         if (json.chats?.length) {
           for (const chat of json.chats) ingestChat(chat);
@@ -644,6 +674,10 @@ export function PokerTable({
 
     refreshInflight.current = run.finally(() => {
       if (refreshInflight.current === run) refreshInflight.current = null;
+      if (refreshQueued.current) {
+        refreshQueued.current = false;
+        void refresh({ tick: false, force: true });
+      }
     });
     return refreshInflight.current;
   }, [roomId, ingestChat]);
@@ -667,9 +701,9 @@ export function PokerTable({
             authCallback: (_, cb) => cb(null, tokenJson.tokenRequest as Ably.TokenRequest),
           });
           const channel = client.channels.get(`room:${roomId}`);
-          // Ably = state already saved — load only, no re-tick (avoids echo storms)
+          // Ably = state already saved — force a fresh load (don't coalesce away)
           channel.subscribe("state", () => {
-            void refresh({ tick: false });
+            void refresh({ tick: false, force: true });
           });
           channel.subscribe("chat", (message) => {
             const data = message.data as TableChatBubble;
