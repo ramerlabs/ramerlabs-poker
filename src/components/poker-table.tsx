@@ -540,7 +540,7 @@ export function PokerTable({
     if (state.street === "flop") {
       playSfx("deal");
       setTimeout(() => playSfx("deal"), 90);
-    } else if (state.street === "turn" || state.street === "river") {
+    } else if (state.street === "turn" || state.street === "fourth" || state.street === "river") {
       playSfx("deal");
     }
   }, [state.street]);
@@ -1377,7 +1377,9 @@ export function PokerTable({
     >
       <div className="poker-chrome flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Badge>{state.street.toUpperCase()}</Badge>
+          <Badge>
+            {state.street === "fourth" ? "4TH" : state.street.toUpperCase()}
+          </Badge>
           <Badge tone="muted">Hand #{state.handNumber}</Badge>
           {!compact && <Badge tone="muted">{seatedCount} seated</Badge>}
           {!compact && state.rakePercent > 0 && (

@@ -95,10 +95,11 @@ function needsAction(state: PokerTableState, seat: SeatState) {
 }
 
 function streetPauseMs(street: PokerTableState["street"], pendingExtra = 0) {
-  if (pendingExtra > 0) return 450; // between flop cards
+  if (pendingExtra > 0) return 450; // between staggered board cards
   if (street === "preflop") return 0;
   if (street === "flop") return 700;
   if (street === "turn") return 800;
+  if (street === "fourth") return 800;
   if (street === "river") return 800;
   return 500;
 }
@@ -131,8 +132,8 @@ function advanceStreet(state: PokerTableState) {
     return;
   }
 
+  // House board: 2 cards first, then 3rd / 4th / 5th one at a time (5 total).
   if (state.street === "preflop") {
-    // First board street: 2 community cards
     state.street = "flop";
     dealCommunity(state, 2);
     state.pendingCommunityDeals = 0;
@@ -147,9 +148,15 @@ function advanceStreet(state: PokerTableState) {
   }
 
   if (state.street === "flop") {
+    // 3rd board card
     state.street = "turn";
     dealCommunity(state, 1);
   } else if (state.street === "turn") {
+    // 4th board card
+    state.street = "fourth";
+    dealCommunity(state, 1);
+  } else if (state.street === "fourth") {
+    // 5th board card (river)
     state.street = "river";
     dealCommunity(state, 1);
   } else if (state.street === "river") {

@@ -16,7 +16,15 @@ export type Rank =
 
 export type Card = `${Rank}${Suit}`;
 
-export type Street = "waiting" | "preflop" | "flop" | "turn" | "river" | "showdown" | "complete";
+export type Street =
+  | "waiting"
+  | "preflop"
+  | "flop"
+  | "turn"
+  | "fourth"
+  | "river"
+  | "showdown"
+  | "complete";
 
 export type PlayerAction = "fold" | "check" | "call" | "bet" | "raise" | "allin";
 
