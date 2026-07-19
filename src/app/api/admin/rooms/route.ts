@@ -21,8 +21,8 @@ const createSchema = z.object({
   targetBots: z.number().int().min(0).max(9).default(0),
   botSkillPercent: z.number().int().min(0).max(100).default(50),
   isPrivate: z.boolean().default(false),
-  /// Table must belong to a club (owners create tables; admin may create for a club).
-  clubId: z.string().min(1),
+  /// Optional: attach table to a club. Admins may create tables with or without a club.
+  clubId: z.string().min(1).optional().nullable(),
 });
 
 export async function GET() {
@@ -68,7 +68,7 @@ export async function POST(req: Request) {
 
   const parsed = createSchema.safeParse(await req.json());
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid table payload — select a club" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid table payload" }, { status: 400 });
   }
 
   const data = parsed.data;
@@ -79,12 +79,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Bots cannot exceed max players" }, { status: 400 });
   }
 
-  const club = await prisma.club.findUnique({
-    where: { id: data.clubId },
-    select: { id: true, name: true, active: true, ownerId: true },
-  });
-  if (!club || !club.active) {
-    return NextResponse.json({ error: "Club not found or inactive" }, { status: 400 });
+  let club: { id: string; name: string; active: boolean; ownerId: string } | null = null;
+  if (data.clubId) {
+    club = await prisma.club.findUnique({
+      where: { id: data.clubId },
+      select: { id: true, name: true, active: true, ownerId: true },
+    });
+    if (!club || !club.active) {
+      return NextResponse.json({ error: "Club not found or inactive" }, { status: 400 });
+    }
   }
 
   let currency = data.type === "FREE" ? "CREDITS" : data.currency ?? "USD";
@@ -117,8 +120,8 @@ export async function POST(req: Request) {
       botSkillPercent: data.botSkillPercent,
       isPrivate,
       inviteCode: isPrivate ? inviteCode() : null,
-      creatorId: club.ownerId,
-      clubId: club.id,
+      creatorId: authResult.userId,
+      clubId: club?.id ?? null,
     },
   });
 
@@ -133,7 +136,7 @@ export async function POST(req: Request) {
         inviteCode: room.inviteCode,
         targetBots: room.targetBots,
         botsSeeded: bots.length,
-        club: { id: club.id, name: club.name },
+        club: club ? { id: club.id, name: club.name } : null,
       },
     },
     { status: 201 },

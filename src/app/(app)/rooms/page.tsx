@@ -25,6 +25,7 @@ export default function RoomsPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [myClub, setMyClub] = useState<MyClub | null>(null);
   const [canCreate, setCanCreate] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -35,6 +36,7 @@ export default function RoomsPage() {
     setRooms(json.rooms ?? []);
     setMyClub(json.myClub ?? null);
     setCanCreate(Boolean(json.canCreateTables));
+    setIsAdmin(Boolean(json.isAdmin));
   }
 
   useEffect(() => {
@@ -68,7 +70,10 @@ export default function RoomsPage() {
       setError(json.error || "Could not create room");
       return;
     }
-    setMessage(`Table “${json.room.name}” created for ${myClub?.name ?? "your club"}`);
+    setMessage(
+      `Table “${json.room.name}” created` +
+        (json.room.club ? ` for ${json.room.club.name}` : isAdmin ? " (admin)" : ""),
+    );
     e.currentTarget.reset();
     await load();
     if (json.room?.id) window.location.href = `/rooms/${json.room.id}`;
@@ -80,7 +85,7 @@ export default function RoomsPage() {
         <div>
           <h1 className="text-4xl font-semibold text-[var(--gold-soft)]">Rooms</h1>
           <p className="mt-2 text-[var(--muted)]">
-            Join open tables. Only club owners can create new tables.
+            Join open tables. Admins and club owners can create new tables.
           </p>
         </div>
         {rooms.map((room) => (
@@ -120,6 +125,11 @@ export default function RoomsPage() {
           <p className="mt-1 text-sm text-[var(--muted)]">
             Creating for club <span className="text-[var(--gold-soft)]">{myClub.name}</span>
           </p>
+        ) : isAdmin ? (
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            Creating as <span className="text-[var(--gold-soft)]">admin</span> (optional club
+            assignment is available in Admin → Tables).
+          </p>
         ) : (
           <p className="mt-2 text-sm text-[var(--muted)]">
             You are not a club owner. A platform admin must create a club and assign you as owner
@@ -139,7 +149,7 @@ export default function RoomsPage() {
           </div>
         )}
 
-        {canCreate && myClub ? (
+        {canCreate ? (
           <form onSubmit={onCreate} className="mt-4 space-y-3">
             <div>
               <Label htmlFor="name">Name</Label>

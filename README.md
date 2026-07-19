@@ -4,7 +4,7 @@
 
 Most “poker platforms” online fall into two camps: noisy free sites you would never put your brand on, or bloated white-label stacks that need a consultant just to open the lobby. **RamerLabs Poker** sits in the middle — a licensed Texas Hold’em SaaS you can run as your own tables product, with the polish of a casino UI and the practicality of a modern web stack.
 
-Operators get **clubs** (admin-assigned owners who create tables), a single **platform cash currency**, **coupons** for credits or cash, and **account security** (2FA + password change) — without bolting on five separate tools.
+Operators get **clubs** (admin-assigned owners who create tables), a single **platform cash currency**, **coupons** for credits or cash, and **account security** (2FA + password change) — without bolting on five separate tools. **Admins** and **club owners** can create tables.
 
 **Live demo:** [poker.ramerlabs.com](https://poker.ramerlabs.com)  
 **Buy lifetime license:** [ramerlabs.com/product/ramerlabs-poker](https://ramerlabs.com/product/ramerlabs-poker/)  
@@ -16,7 +16,7 @@ Operators get **clubs** (admin-assigned owners who create tables), a single **pl
 
 RamerLabs Poker is a full-stack **Texas Hold’em multiplayer** product for operators who want branded free-credit lobbies and private real-money rooms under one deploy.
 
-Players join tables, sit with credits or cash, and play timed Hold’em with bots, chat, and live sync. Admins run the house: platform currency, clubs, coupons, rake, payment endpoints, Ably, and support tickets. Club owners — assigned only by admins — create and run their club’s tables.
+Players join tables, sit with credits or cash, and play timed Hold’em with bots, chat, and live sync. Admins run the house: platform currency, clubs, coupons, rake, payment endpoints, Ably, and support tickets. Admins can create tables anytime; club owners — assigned only by admins — can also create tables for their club.
 
 It ships as a Next.js app with Prisma/Postgres, credentials auth (optional TOTP 2FA), wallet deposits/withdrawals (USDT / GCash-style), promo coupons, and a site-wide RamerLabs lifetime license gate.
 
@@ -63,8 +63,9 @@ The demo exists so you can judge the product on the felt — not only on a featu
 ### Clubs & tables
 - **Clubs** with one owner per club
 - **Only admins** can create a club and assign / reassign the club owner
-- **Only club owners** can create tables for their club (admins can also create a table *for* a selected club)
-- Room list shows club name on each table
+- **Admins and club owners** can create tables (regular players cannot)
+- Admin tables may optionally attach to a club; club-owner tables are tagged to their club
+- Room list shows club name on each table when set
 
 ### Wallet & currency
 - Split balances: **Credits** vs **Real cash**

@@ -43,7 +43,8 @@ export async function GET() {
 
   return NextResponse.json({
     myClub,
-    canCreateTables: Boolean(myClub),
+    isAdmin,
+    canCreateTables: Boolean(myClub) || isAdmin,
     rooms: rooms.map((room) => {
       const canSeeInvite =
         Boolean(viewerId) && (room.creatorId === viewerId || isAdmin);
@@ -63,12 +64,13 @@ export async function POST(req: Request) {
   const authResult = await requireUser();
   if ("error" in authResult) return authResult.error;
 
+  const isAdmin = authResult.role === "ADMIN";
   const club = await getOwnedClub(authResult.userId);
-  if (!club) {
+  if (!isAdmin && !club) {
     return NextResponse.json(
       {
         error:
-          "Only club owners can create tables. Ask a platform admin to make you a club owner.",
+          "Only admins and club owners can create tables. Ask a platform admin to make you a club owner.",
       },
       { status: 403 },
     );
@@ -115,7 +117,7 @@ export async function POST(req: Request) {
       isPrivate,
       inviteCode: isPrivate ? inviteCode() : null,
       creatorId: authResult.userId,
-      clubId: club.id,
+      clubId: club?.id ?? null,
     },
   });
 
@@ -126,7 +128,7 @@ export async function POST(req: Request) {
         buyIn: toNumber(room.buyIn),
         smallBlind: toNumber(room.smallBlind),
         bigBlind: toNumber(room.bigBlind),
-        club: { id: club.id, name: club.name },
+        club: club ? { id: club.id, name: club.name } : null,
       },
     },
     { status: 201 },

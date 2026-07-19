@@ -203,20 +203,14 @@ export default function AdminPage() {
     setMessage(null);
     setError(null);
     const form = new FormData(e.currentTarget);
-    const clubId = String(form.get("clubId") || "");
-    if (!clubId) {
-      setCreating(false);
-      setError("Select a club for this table");
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
-    }
+    const clubId = String(form.get("clubId") || "").trim();
     const res = await fetch("/api/admin/rooms", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: String(form.get("name")),
         type: String(form.get("type")),
-        clubId,
+        clubId: clubId || null,
         buyIn: Number(form.get("buyIn")),
         smallBlind: Number(form.get("smallBlind")),
         bigBlind: Number(form.get("bigBlind")),
@@ -592,7 +586,7 @@ export default function AdminPage() {
           <div>
             <h2 className="text-xl font-semibold">Clubs</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Only admins can make a player a club owner. Only club owners can create tables.
+              Only admins can make a player a club owner. Admins and club owners can create tables.
             </p>
           </div>
           <Badge tone="gold">{clubs.length} clubs</Badge>
@@ -942,8 +936,8 @@ export default function AdminPage() {
           <div>
             <h2 className="text-xl font-semibold">Tables</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Create a table for a club (credited to the club owner). Club owners can also create
-              tables from Rooms.
+              Admins can create tables anytime (with bots). Optionally attach a table to a club.
+              Club owners can also create tables from Rooms.
             </p>
           </div>
           <Badge tone="gold">{openRooms.length} open</Badge>
@@ -951,16 +945,13 @@ export default function AdminPage() {
 
         <form onSubmit={createTable} className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <div className="md:col-span-2 xl:col-span-3">
-            <Label>Club</Label>
+            <Label>Club (optional)</Label>
             <select
               name="clubId"
-              required
               defaultValue=""
               className="w-full rounded-xl border border-[var(--line)] bg-[#0a1220] px-3.5 py-2.5 text-sm"
             >
-              <option value="" disabled>
-                Select club…
-              </option>
+              <option value="">No club — platform table</option>
               {clubs
                 .filter((c) => c.active)
                 .map((c) => (
@@ -969,11 +960,6 @@ export default function AdminPage() {
                   </option>
                 ))}
             </select>
-            {clubs.filter((c) => c.active).length === 0 && (
-              <p className="mt-1 text-xs text-[var(--crimson)]">
-                Create an active club above before adding tables.
-              </p>
-            )}
           </div>
           <div className="md:col-span-2 xl:col-span-3">
             <Label>Table name</Label>
