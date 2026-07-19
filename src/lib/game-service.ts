@@ -66,10 +66,9 @@ export async function loadGameRow(
       seat.lastAction = seat.folded ? "fold" : seat.allIn ? "allin" : null;
     }
   }
-  // Resume clock if an older state has an actor but no timestamp
-  if (state.actionSeat != null && state.turnStartedAt == null) {
-    state.turnStartedAt = Date.now();
-  }
+  // Do NOT invent turnStartedAt here — tick claim used to persist Date.now()
+  // on every poll while the clock was null (deal hold), resetting the timer
+  // forever and leaving the UI stuck at 0s after the real clock expired.
   return { state, version: row.version };
 }
 
@@ -286,10 +285,52 @@ export async function syncRosterToLiveState(roomId: string): Promise<PokerTableS
   return state;
 }
 
-/** Auto-fold human seats that exceed the turn clock (+ short grace for latency). */
+/** Network grace after the visible turn clock — keep short so UI at 0s isn't a long freeze. */
+const HUMAN_TURN_GRACE_MS = 2_000;
+
+function turnLimitMs(state: PokerTableState, userId: string) {
+  const graceMs = isBotUserId(userId) ? 0 : HUMAN_TURN_GRACE_MS;
+  return (state.turnSeconds || DEFAULT_TURN_SECONDS) * 1000 + graceMs;
+}
+
+function isTurnExpired(state: PokerTableState, userId: string) {
+  if (state.turnStartedAt == null) return false;
+  return Date.now() - state.turnStartedAt >= turnLimitMs(state, userId);
+}
+
+/** Fold (or bot-act) when the turn clock has already hit 0 — never no-op and freeze. */
+function resolveExpiredActor(
+  state: PokerTableState,
+  actorUserId: string,
+): PokerTableState {
+  if (isBotUserId(actorUserId)) {
+    // Prefer a real bot decision if think time already passed; else force-fold.
+    // Caller may have already tried advanceOneBotIfReady — this is the hard path.
+    try {
+      return forceFold(state, actorUserId);
+    } catch {
+      return state;
+    }
+  }
+  try {
+    return applyAction(state, actorUserId, "fold");
+  } catch {
+    try {
+      return forceFold(state, actorUserId);
+    } catch {
+      return state;
+    }
+  }
+}
+
+/** Auto-fold seats that exceed the turn clock (+ short grace for humans). */
 export async function enforceTurnTimeout(roomId: string): Promise<PokerTableState> {
   let state = await ensureGameState(roomId);
   if (releaseStreetHoldIfReady(state)) {
+    await saveTableState(roomId, state);
+    state = await ensureGameState(roomId);
+  }
+  if (recoverIfNoActionSeat(state)) {
     await saveTableState(roomId, state);
     state = await ensureGameState(roomId);
   }
@@ -298,47 +339,69 @@ export async function enforceTurnTimeout(roomId: string): Promise<PokerTableStat
   while (
     guard < 8 &&
     state.actionSeat != null &&
-    state.turnStartedAt != null &&
     !(state.streetHoldUntil && Date.now() < state.streetHoldUntil) &&
     state.street !== "waiting" &&
     state.street !== "complete" &&
     state.street !== "showdown"
   ) {
     const actor = state.seats.find((s) => s.seat === state.actionSeat);
-    if (!actor) break;
-
-    // Humans get a large network grace: polls are often 1–3s and the UI may
-    // learn about the turn late. Bots use the base clock only as a stuck safety net.
-    const graceMs = isBotUserId(actor.userId) ? 0 : 12_000;
-    const limitMs = (state.turnSeconds || DEFAULT_TURN_SECONDS) * 1000 + graceMs;
-    if (Date.now() - state.turnStartedAt < limitMs) break;
-
-    // Bots are normally advanced by advanceOneBotIfReady; if they still exceed
-    // the human turn clock, force them forward so the table cannot freeze at 0s.
-    if (isBotUserId(actor.userId)) {
-      const botResult = await advanceOneBotIfReady(state);
-      if (!botResult.acted) break;
-      const prev = state;
-      state = botResult.state;
-      await saveTableState(roomId, state);
-      await recordRakeIfNeeded(roomId, prev, state);
-      await afterHandRoster(roomId, prev, state);
-      state = await ensureGameState(roomId);
-      guard += 1;
-      continue;
-    }
-
-    const prev = state;
-    try {
-      state = applyAction(state, actor.userId, "fold");
-      await saveTableState(roomId, state);
-      await recordRakeIfNeeded(roomId, prev, state);
-      await afterHandRoster(roomId, prev, state);
-      state = await ensureGameState(roomId);
-      // Next actor (maybe bot) waits for their own think / clock on later ticks
-    } catch {
+    if (!actor || actor.folded || actor.allIn) {
+      if (recoverIfNoActionSeat(state)) {
+        await saveTableState(roomId, state);
+        state = await ensureGameState(roomId);
+        guard += 1;
+        continue;
+      }
       break;
     }
+
+    // Missing clock with a live actor — start it once; don't wait forever.
+    if (state.turnStartedAt == null) {
+      state.turnStartedAt = Date.now();
+      await saveTableState(roomId, state);
+      break;
+    }
+
+    if (!isTurnExpired(state, actor.userId)) break;
+
+    const prevSeat = state.actionSeat;
+    const prevHand = state.handNumber;
+    const prevStreet = state.street;
+    const prev = state;
+
+    if (isBotUserId(actor.userId)) {
+      const botResult = await advanceOneBotIfReady(state);
+      state = botResult.acted ? botResult.state : resolveExpiredActor(state, actor.userId);
+    } else {
+      state = resolveExpiredActor(state, actor.userId);
+    }
+
+    // Nothing moved — force-fold as last resort, then recover invalid seats
+    if (
+      state.actionSeat === prevSeat &&
+      state.handNumber === prevHand &&
+      state.street === prevStreet
+    ) {
+      state = resolveExpiredActor(prev, actor.userId);
+      if (
+        state.actionSeat === prevSeat &&
+        state.handNumber === prevHand &&
+        state.street === prevStreet
+      ) {
+        if (recoverIfNoActionSeat(state)) {
+          await saveTableState(roomId, state);
+          state = await ensureGameState(roomId);
+          guard += 1;
+          continue;
+        }
+        break;
+      }
+    }
+
+    await saveTableState(roomId, state);
+    await recordRakeIfNeeded(roomId, prev, state);
+    await afterHandRoster(roomId, prev, state);
+    state = await ensureGameState(roomId);
     guard += 1;
   }
 
@@ -387,7 +450,8 @@ async function advanceOneBotIfReady(state: PokerTableState): Promise<{
   const waited = Date.now() - turnStartedAt;
   // Hard cap so a stuck bot can never freeze the table at "0s"
   const botMaxMs = Math.min((state.turnSeconds || DEFAULT_TURN_SECONDS) * 1000, 4_000);
-  if (waited < thinkMs) {
+  const expired = waited >= botMaxMs || isTurnExpired(state, actor.userId);
+  if (!expired && waited < thinkMs) {
     return { state, acted: false };
   }
 
@@ -402,8 +466,8 @@ async function advanceOneBotIfReady(state: PokerTableState): Promise<{
       try {
         next = applyAction(next, actor.userId, "fold");
       } catch {
-        // Last resort after hard cap — force-fold even if applyAction path is broken
-        if (waited >= botMaxMs) {
+        // Last resort after hard cap / expired clock — never leave the table at 0s
+        if (expired || waited >= botMaxMs) {
           try {
             next = forceFold(next, actor.userId);
           } catch {
@@ -428,13 +492,24 @@ const lastTickAt = new Map<string, number>();
 const lastRosterSyncAt = new Map<string, number>();
 
 /**
- * Start a tick if needed. Never makes callers wait on an in-flight tick —
- * waiting was stacking every light poll into 5–20s "NET WEAK" freezes.
+ * Start a tick if needed. Prefer not to block callers on a full tick (latency),
+ * but always await an in-flight tick briefly so timeout folds aren't invisible.
  */
 export async function tickRoomDebounced(roomId: string, minIntervalMs = 200): Promise<PokerTableState> {
   const existing = tickInflight.get(roomId);
   if (existing) {
-    return ensureGameState(roomId);
+    try {
+      return await Promise.race([
+        existing,
+        new Promise<PokerTableState>((resolve) => {
+          setTimeout(() => {
+            void ensureGameState(roomId).then(resolve);
+          }, 400);
+        }),
+      ]);
+    } catch {
+      return ensureGameState(roomId);
+    }
   }
 
   const last = lastTickAt.get(roomId) ?? 0;
@@ -442,17 +517,28 @@ export async function tickRoomDebounced(roomId: string, minIntervalMs = 200): Pr
     return ensureGameState(roomId);
   }
 
-  const run = tickRoom(roomId)
+  const run = Promise.race([
+    tickRoom(roomId),
+    new Promise<PokerTableState>((_, reject) => {
+      setTimeout(() => reject(new Error("TICK_TIMEOUT")), 12_000);
+    }),
+  ])
     .then((state) => {
       lastTickAt.set(roomId, Date.now());
       return state;
+    })
+    .catch(async (err) => {
+      if (err instanceof Error && err.message === "TICK_TIMEOUT") {
+        return ensureGameState(roomId);
+      }
+      throw err;
     })
     .finally(() => {
       if (tickInflight.get(roomId) === run) tickInflight.delete(roomId);
     });
 
   tickInflight.set(roomId, run);
-  // Return current state immediately; tick continues in background
+  // Kick off without blocking the poll response on bot think / DB work
   void run.catch(() => {});
   return ensureGameState(roomId);
 }
@@ -514,42 +600,8 @@ export async function tickRoom(roomId: string): Promise<PokerTableState> {
       await commit(state);
     }
 
-    // Auto-fold timed-out humans (and stuck bots)
-    for (let guard = 0; guard < 8; guard += 1) {
-      if (
-        state.actionSeat == null ||
-        state.turnStartedAt == null ||
-        (state.streetHoldUntil && Date.now() < state.streetHoldUntil) ||
-        state.street === "waiting" ||
-        state.street === "complete" ||
-        state.street === "showdown"
-      ) {
-        break;
-      }
-      const actor = state.seats.find((s) => s.seat === state.actionSeat);
-      if (!actor) break;
-      const graceMs = isBotUserId(actor.userId) ? 0 : 12_000;
-      const limitMs = (state.turnSeconds || DEFAULT_TURN_SECONDS) * 1000 + graceMs;
-      if (Date.now() - state.turnStartedAt < limitMs) break;
-
-      const prev = state;
-      if (isBotUserId(actor.userId)) {
-        const botResult = await advanceOneBotIfReady(state);
-        if (!botResult.acted) break;
-        state = botResult.state;
-      } else {
-        try {
-          state = applyAction(state, actor.userId, "fold");
-        } catch {
-          break;
-        }
-      }
-      await commit(state, false);
-      await recordRakeIfNeeded(roomId, prev, state);
-      await afterHandRoster(roomId, prev, state);
-    }
-
-    // Staggered flop / turn / river
+    // Staggered flop / turn / river BEFORE timeouts — never leave an actor
+    // frozen at 0s while board cards are still pending.
     {
       const communityStep = continueCommunityDealIfReady(state);
       if (communityStep) {
@@ -569,6 +621,64 @@ export async function tickRoom(roomId: string): Promise<PokerTableState> {
         await recordRakeIfNeeded(roomId, before, state);
         await afterHandRoster(roomId, before, state);
       }
+    }
+
+    // Auto-fold timed-out humans (and stuck bots) — never break on !acted when expired
+    for (let guard = 0; guard < 8; guard += 1) {
+      if (
+        state.actionSeat == null ||
+        (state.streetHoldUntil && Date.now() < state.streetHoldUntil) ||
+        state.street === "waiting" ||
+        state.street === "complete" ||
+        state.street === "showdown"
+      ) {
+        break;
+      }
+      const actor = state.seats.find((s) => s.seat === state.actionSeat);
+      if (!actor || actor.folded || actor.allIn) {
+        if (!recoverIfNoActionSeat(state)) break;
+        await commit(state, false);
+        continue;
+      }
+      if (state.turnStartedAt == null) {
+        state.turnStartedAt = Date.now();
+        await commit(state, false);
+        break;
+      }
+      if (!isTurnExpired(state, actor.userId)) break;
+
+      const prev = state;
+      const prevSeat = state.actionSeat;
+      const prevHand = state.handNumber;
+      const prevStreet = state.street;
+
+      if (isBotUserId(actor.userId)) {
+        const botResult = await advanceOneBotIfReady(state);
+        state = botResult.acted ? botResult.state : resolveExpiredActor(state, actor.userId);
+      } else {
+        state = resolveExpiredActor(state, actor.userId);
+      }
+
+      if (
+        state.actionSeat === prevSeat &&
+        state.handNumber === prevHand &&
+        state.street === prevStreet
+      ) {
+        state = resolveExpiredActor(prev, actor.userId);
+        if (
+          state.actionSeat === prevSeat &&
+          state.handNumber === prevHand &&
+          state.street === prevStreet
+        ) {
+          if (!recoverIfNoActionSeat(state)) break;
+          await commit(state, false);
+          continue;
+        }
+      }
+
+      await commit(state, false);
+      await recordRakeIfNeeded(roomId, prev, state);
+      await afterHandRoster(roomId, prev, state);
     }
 
     // Bot chain
@@ -722,8 +832,7 @@ export async function performAction(
       version = fresh.version;
     }
   } else if (prev.turnStartedAt != null) {
-    const limitMs = (prev.turnSeconds || DEFAULT_TURN_SECONDS) * 1000 + 12_000;
-    if (Date.now() - prev.turnStartedAt >= limitMs) {
+    if (isTurnExpired(prev, userId)) {
       prev = await enforceTurnTimeout(roomId);
       const fresh = await loadGameRow(roomId);
       if (fresh) {

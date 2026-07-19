@@ -571,17 +571,32 @@ export function applyAction(
 }
 
 /**
- * If a hand has no actionSeat mid-round (bad check-round / null seat),
- * pick the next actor or advance the street so the table cannot freeze.
+ * If a hand has no valid actionSeat mid-round (null seat, missing seat after
+ * roster sync, or actor already folded/all-in), pick the next actor or
+ * advance the street so the table cannot freeze at 0s.
  */
 export function recoverIfNoActionSeat(state: PokerTableState): boolean {
-  if (state.actionSeat != null) return false;
   if (
     state.street === "waiting" ||
     state.street === "complete" ||
     state.street === "showdown"
   ) {
     return false;
+  }
+
+  const actor =
+    state.actionSeat != null
+      ? state.seats.find((s) => s.seat === state.actionSeat)
+      : null;
+  const actionInvalid =
+    state.actionSeat != null &&
+    (!actor || actor.folded || actor.allIn || actor.sittingOut);
+
+  if (state.actionSeat != null && !actionInvalid) return false;
+
+  if (actionInvalid) {
+    state.actionSeat = null;
+    state.turnStartedAt = null;
   }
 
   sanitizeTableClocks(state);
