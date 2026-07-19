@@ -1,14 +1,27 @@
 # RamerLabs Poker
 
-Premium Texas Hold'em SaaS platform built with Next.js (App Router), Prisma, Neon PostgreSQL, NextAuth, and Ably (with polling fallback).
+Premium Texas Hold'em multiplayer platform by [RamerLabs](https://ramerlabs.com) — live tables, credits & cash wallets, bots, chat, and an admin control panel.
+
+![RamerLabs Poker table](docs/poker-table.png)
 
 ## Stack
 
-- Next.js 16 + TypeScript + Tailwind CSS
-- Prisma + Neon PostgreSQL
-- NextAuth (Auth.js) credentials
-- Ably realtime (optional) — set `ABLY_ENABLED=false` to force polling even with a key
+- **Next.js 16** + TypeScript + Tailwind CSS
+- **Prisma** + Neon PostgreSQL
+- **NextAuth (Auth.js)** credentials auth
+- **Ably** realtime (optional) — set `ABLY_ENABLED=false` to force polling
 - Vercel-ready serverless API routes
+
+## Features
+
+- Public **FREE** rooms (credits) and private **REAL** rooms (invite codes)
+- Full Texas Hold'em engine: shuffle, deal, blinds, streets, showdown
+- Timed turns, auto-fold, tip the dealer, and seat waitlist / stand up
+- Configurable bot opponents with per-table accuracy (0–100%)
+- Table chat with admin enable/disable per room
+- Split wallet: Credits vs Real Cash + currency switcher (USD/PHP)
+- **USDT** / **GCash** deposit & withdrawal gateways
+- Admin panel: tables, currencies, rake, Ably, support tickets
 
 ## Quick start
 
@@ -44,14 +57,6 @@ New registrations receive **1,000 credits**.
 
 Never commit `.env` / `.env.local`. Rotate any credentials that were shared in chat.
 
-## Features
-
-- Public **FREE** rooms (credits) and private **REAL** rooms (invite codes)
-- Texas Hold'em engine: shuffle, deal, blinds, streets, hand evaluation
-- Split wallet: Credits vs Real Cash + currency switcher (USD/PHP)
-- **USDT** / **GCash** deposit & withdrawal gateways
-- Admin currency toggle and payment parameter management
-
 ## Deploy (Vercel)
 
 1. Push to GitHub and import the project in Vercel
@@ -61,7 +66,13 @@ Never commit `.env` / `.env.local`. Rotate any credentials that were shared in c
 
 ## Scripts
 
-- `npm run dev` — local server
-- `npm run build` — production build
-- `npm run db:push` — sync Prisma schema
-- `npm run db:seed` — seed admin, currencies, sample rooms
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Local development server |
+| `npm run build` | Production build |
+| `npm run db:push` | Sync Prisma schema to the database |
+| `npm run db:seed` | Seed admin, currencies, and sample rooms |
+
+## License
+
+Private — RamerLabs. All rights reserved.
