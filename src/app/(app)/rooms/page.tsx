@@ -26,6 +26,51 @@ type Room = {
 
 type MyClub = { id: string; name: string; active: boolean };
 
+function RoomCard({ room }: { room: Room }) {
+  const openHref = room.inviteCode
+    ? `/rooms/${room.id}?invite=${encodeURIComponent(room.inviteCode)}`
+    : `/rooms/${room.id}`;
+
+  return (
+    <Panel className="p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-2xl font-semibold">{room.name}</h2>
+            <Badge tone={room.type === "FREE" ? "green" : "gold"}>{room.type}</Badge>
+            {room.isPrivate && <Badge tone="muted">Private</Badge>}
+            {room.club && <Badge tone="gold">{room.club.name}</Badge>}
+          </div>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            {room.smallBlind}/{room.bigBlind} · Buy-in {room.buyIn} {room.currency} ·{" "}
+            {room.players.length}/{room.maxPlayers} players
+          </p>
+          {room.club && (
+            <p className="mt-2 text-sm text-[var(--gold-soft)]">
+              Club table — need credits? Contact the club owner at{" "}
+              <a
+                href={`mailto:${room.club.owner.email}`}
+                className="underline hover:text-[var(--gold)]"
+              >
+                {room.club.owner.email}
+              </a>
+              {room.club.owner.name ? ` (${room.club.owner.name})` : ""} for a top-up.
+            </p>
+          )}
+          {room.inviteCode && (
+            <p className="mt-2 font-mono text-xs tracking-wider text-[var(--gold)]">
+              Invite: {room.inviteCode}
+            </p>
+          )}
+        </div>
+        <Link href={openHref}>
+          <Button variant="felt">Open table</Button>
+        </Link>
+      </div>
+    </Panel>
+  );
+}
+
 export default function RoomsPage() {
   const toast = useToast();
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -33,7 +78,9 @@ export default function RoomsPage() {
   const [canCreate, setCanCreate] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [joining, setJoining] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [inviteInput, setInviteInput] = useState("");
+  const [foundRoom, setFoundRoom] = useState<Room | null>(null);
 
   async function load() {
     const res = await fetch("/api/rooms");
@@ -48,50 +95,48 @@ export default function RoomsPage() {
     void load();
   }, []);
 
-  async function joinByInvite(e: FormEvent<HTMLFormElement>) {
+  async function searchByInvite(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setJoining(true);
-    const form = new FormData(e.currentTarget);
-    const inviteCode = String(form.get("inviteCode") || "").trim().toUpperCase();
+    const inviteCode = inviteInput.trim().toUpperCase();
+    if (inviteCode.length < 4) {
+      toast.error("Enter a valid invite code");
+      return;
+    }
+    setSearching(true);
+    setFoundRoom(null);
     try {
       const res = await fetch("/api/rooms/by-invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inviteCode, join: true }),
+        body: JSON.stringify({ inviteCode }),
       });
       const json = await res.json();
-      if (!res.ok) {
-        // If the API still resolved a room, open it anyway.
-        const fallbackId = json.room?.id as string | undefined;
-        const fallbackCode = (json.room?.inviteCode as string | undefined) || inviteCode;
-        if (fallbackId) {
-          toast.error(json.error || "Could not auto-join — opening table…");
-          window.location.assign(
-            `/rooms/${fallbackId}?invite=${encodeURIComponent(fallbackCode)}`,
-          );
-          return;
-        }
-        toast.error(json.error || "Could not open table");
+      if (!res.ok || !json.room?.id) {
+        toast.error(json.error || "No table found for that invite code");
         return;
       }
-      const path =
-        (json.path as string | undefined) ||
-        (json.room?.id
-          ? `/rooms/${json.room.id}?invite=${encodeURIComponent(
-              (json.room.inviteCode as string) || inviteCode,
-            )}`
-          : null);
-      if (!path) {
-        toast.error("Table found but no link returned");
-        return;
-      }
-      toast.success(json.message || "Opening table…");
-      e.currentTarget.reset();
-      window.location.assign(path);
+      const room: Room = {
+        id: json.room.id,
+        name: json.room.name,
+        type: json.room.type,
+        currency: json.room.currency,
+        buyIn: json.room.buyIn,
+        smallBlind: json.room.smallBlind,
+        bigBlind: json.room.bigBlind,
+        maxPlayers: json.room.maxPlayers,
+        isPrivate: Boolean(json.room.isPrivate),
+        inviteCode: json.room.inviteCode,
+        players: Array.isArray(json.room.players)
+          ? json.room.players
+          : Array.from({ length: json.room.playerCount ?? 0 }, (_, i) => ({ id: String(i) })),
+        club: json.room.club ?? null,
+      };
+      setFoundRoom(room);
+      toast.success(json.message || `Found “${room.name}”`);
     } catch {
-      toast.error("Could not open table");
+      toast.error("Could not look up invite code");
     } finally {
-      setJoining(false);
+      setSearching(false);
     }
   }
 
@@ -126,8 +171,17 @@ export default function RoomsPage() {
     );
     e.currentTarget.reset();
     await load();
-    if (json.room?.id) window.location.href = `/rooms/${json.room.id}`;
+    if (json.room?.id) {
+      const invite = json.room.inviteCode as string | null | undefined;
+      window.location.href = invite
+        ? `/rooms/${json.room.id}?invite=${encodeURIComponent(invite)}`
+        : `/rooms/${json.room.id}`;
+    }
   }
+
+  const lobbyRooms = foundRoom
+    ? rooms.filter((r) => r.id !== foundRoom.id)
+    : rooms;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr] animate-fade-up">
@@ -135,17 +189,17 @@ export default function RoomsPage() {
         <div>
           <h1 className="text-4xl font-semibold text-[var(--gold-soft)]">Rooms</h1>
           <p className="mt-2 text-[var(--muted)]">
-            Join open tables with an invite code, or browse the lobby. Admins and club owners can
+            Search a private table by invite code, or browse the lobby. Admins and club owners can
             create tables.
           </p>
         </div>
 
         <Panel className="p-5">
-          <h2 className="text-xl font-semibold">Enter with invite code</h2>
+          <h2 className="text-xl font-semibold">Find table by invite code</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Have a private table code? Enter it here to open the table.
+            Enter the code to show the table here, then click Open table.
           </p>
-          <form onSubmit={joinByInvite} className="mt-4 flex flex-wrap items-end gap-3">
+          <form onSubmit={searchByInvite} className="mt-4 flex flex-wrap items-end gap-3">
             <div className="min-w-[200px] flex-1">
               <Label htmlFor="inviteCode">Invite code</Label>
               <Input
@@ -154,56 +208,42 @@ export default function RoomsPage() {
                 required
                 minLength={4}
                 maxLength={16}
+                value={inviteInput}
+                onChange={(e) => setInviteInput(e.target.value.toUpperCase())}
                 placeholder="e.g. AB12CD34"
                 className="uppercase tracking-wider"
                 autoComplete="off"
               />
             </div>
-            <Button type="submit" disabled={joining}>
-              {joining ? "Opening…" : "Enter table"}
+            <Button type="submit" disabled={searching}>
+              {searching ? "Searching…" : "Find table"}
             </Button>
+            {foundRoom && (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setFoundRoom(null);
+                  setInviteInput("");
+                }}
+              >
+                Clear
+              </Button>
+            )}
           </form>
         </Panel>
 
-        {rooms.map((room) => (
-          <Panel key={room.id} className="p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-2xl font-semibold">{room.name}</h2>
-                  <Badge tone={room.type === "FREE" ? "green" : "gold"}>{room.type}</Badge>
-                  {room.isPrivate && <Badge tone="muted">Private</Badge>}
-                  {room.club && <Badge tone="gold">{room.club.name}</Badge>}
-                </div>
-                <p className="mt-1 text-sm text-[var(--muted)]">
-                  {room.smallBlind}/{room.bigBlind} · Buy-in {room.buyIn} {room.currency} ·{" "}
-                  {room.players.length}/{room.maxPlayers} players
-                </p>
-                {room.club && (
-                  <p className="mt-2 text-sm text-[var(--gold-soft)]">
-                    Club table — need credits? Contact the club owner at{" "}
-                    <a
-                      href={`mailto:${room.club.owner.email}`}
-                      className="underline hover:text-[var(--gold)]"
-                    >
-                      {room.club.owner.email}
-                    </a>
-                    {room.club.owner.name ? ` (${room.club.owner.name})` : ""} for a top-up.
-                  </p>
-                )}
-                {room.isPrivate && room.inviteCode && (
-                  <p className="mt-2 font-mono text-xs text-[var(--gold)]">
-                    Invite: {room.inviteCode}
-                  </p>
-                )}
-              </div>
-              <Link href={`/rooms/${room.id}`}>
-                <Button variant="felt">Open table</Button>
-              </Link>
-            </div>
-          </Panel>
+        {foundRoom && (
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-[var(--gold-soft)]">Invite match</p>
+            <RoomCard room={foundRoom} />
+          </div>
+        )}
+
+        {lobbyRooms.map((room) => (
+          <RoomCard key={room.id} room={room} />
         ))}
-        {rooms.length === 0 && (
+        {lobbyRooms.length === 0 && !foundRoom && (
           <p className="text-sm text-[var(--muted)]">No open rooms yet.</p>
         )}
       </div>

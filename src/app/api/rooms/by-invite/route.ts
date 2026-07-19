@@ -2,18 +2,15 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
-import { joinWaitlist } from "@/lib/table-roster";
 import { toNumber } from "@/lib/utils";
 
 const schema = z.object({
   inviteCode: z.string().min(4).max(16),
-  /** If true, also join the waitlist after resolving the room. */
-  join: z.boolean().optional().default(true),
 });
 
 /**
- * Enter a private table by invite code only.
- * Returns room id + invite so the client can open `/rooms/[id]?invite=…`.
+ * Look up a private table by invite code (no auto-join).
+ * Client shows the table on Rooms, then opens `/rooms/[id]?invite=…`.
  */
 export async function POST(req: Request) {
   const authResult = await requireUser();
@@ -25,13 +22,14 @@ export async function POST(req: Request) {
   }
 
   const code = parsed.data.inviteCode.trim().toUpperCase();
+
   const room = await prisma.room.findFirst({
     where: {
-      inviteCode: code,
       status: { not: "CLOSED" },
+      inviteCode: { equals: code, mode: "insensitive" },
     },
     include: {
-      players: { select: { id: true, userId: true } },
+      players: { select: { id: true } },
       club: {
         select: {
           id: true,
@@ -42,42 +40,16 @@ export async function POST(req: Request) {
     },
   });
 
-  if (!room || !room.isPrivate || !room.inviteCode) {
-    return NextResponse.json({ error: "No open table found for that invite code" }, { status: 404 });
-  }
-
-  const path = `/rooms/${room.id}?invite=${encodeURIComponent(room.inviteCode)}`;
-
-  let waitlist: {
-    waiting: boolean;
-    seated?: boolean;
-    position?: number | null;
-    message?: string;
-  } | null = null;
-  let waitlistWarning: string | null = null;
-  if (parsed.data.join) {
-    const alreadySeated = room.players.some((p) => p.userId === authResult.userId);
-    if (!alreadySeated) {
-      try {
-        const result = await joinWaitlist(room.id, authResult.userId);
-        waitlist = {
-          waiting: result.waiting,
-          seated: result.seated,
-          position: result.position,
-          message: result.message,
-        };
-      } catch (error) {
-        // Still open the table — user can join/sit from the room page.
-        waitlistWarning =
-          error instanceof Error ? error.message : "Could not auto-join waitlist";
-      }
-    } else {
-      waitlist = { waiting: false, seated: true };
-    }
+  if (!room || !room.inviteCode) {
+    return NextResponse.json(
+      { error: "No open table found for that invite code" },
+      { status: 404 },
+    );
   }
 
   return NextResponse.json({
     ok: true,
+    message: `Found “${room.name}”`,
     room: {
       id: room.id,
       name: room.name,
@@ -87,15 +59,11 @@ export async function POST(req: Request) {
       smallBlind: toNumber(room.smallBlind),
       bigBlind: toNumber(room.bigBlind),
       maxPlayers: room.maxPlayers,
-      playerCount: room.players.length,
-      inviteCode: room.inviteCode,
+      isPrivate: Boolean(room.isPrivate),
+      inviteCode: room.inviteCode.toUpperCase(),
+      players: room.players,
       club: room.club,
     },
-    waitlist,
-    waitlistWarning,
-    path,
-    message: waitlistWarning
-      ? `Opening “${room.name}”… (${waitlistWarning})`
-      : `Opening “${room.name}”…`,
+    path: `/rooms/${room.id}?invite=${encodeURIComponent(room.inviteCode.toUpperCase())}`,
   });
 }
