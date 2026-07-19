@@ -60,7 +60,11 @@ export async function GET(req: Request, { params }: Params) {
   const seated = Boolean(myPlayer);
   const waiting = room.waitlist.some((w) => w.userId === authResult.userId);
   const isCreator = room.creatorId === authResult.userId;
-  const validInvite = Boolean(invite && invite === room.inviteCode);
+  const validInvite = Boolean(
+    invite &&
+      room.inviteCode &&
+      invite.trim().toUpperCase() === room.inviteCode.trim().toUpperCase(),
+  );
 
   if (room.isPrivate) {
     if (

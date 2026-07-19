@@ -386,8 +386,34 @@ export default function ClubPage() {
                     {room.smallBlind}/{room.bigBlind} · Buy-in {room.buyIn} {room.currency} ·{" "}
                     {room.playerCount}/{room.maxPlayers} seated · bots {room.targetBots} · chat{" "}
                     {room.chatEnabled ? "ON" : "OFF"}
-                    {room.inviteCode ? ` · invite ${room.inviteCode}` : ""}
                   </p>
+                  {room.inviteCode ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="text-xs uppercase tracking-wide text-[var(--muted)]">
+                        Invite code
+                      </span>
+                      <code className="rounded-lg border border-[rgba(212,175,55,0.35)] bg-black/30 px-2.5 py-1 font-mono text-sm tracking-wider text-[var(--gold)]">
+                        {room.inviteCode}
+                      </code>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="!px-2 !py-1 text-xs"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(room.inviteCode!);
+                            toast.success(`Copied ${room.inviteCode}`);
+                          } catch {
+                            toast.success(room.inviteCode!);
+                          }
+                        }}
+                      >
+                        Copy
+                      </Button>
+                    </div>
+                  ) : room.isPrivate ? (
+                    <p className="mt-2 text-xs text-[var(--muted)]">Private — no invite code yet</p>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Link href={`/rooms/${room.id}${room.inviteCode ? `?invite=${room.inviteCode}` : ""}`}>

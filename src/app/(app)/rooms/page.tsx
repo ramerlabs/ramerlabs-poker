@@ -52,22 +52,46 @@ export default function RoomsPage() {
     e.preventDefault();
     setJoining(true);
     const form = new FormData(e.currentTarget);
-    const inviteCode = String(form.get("inviteCode") || "").trim();
-    const res = await fetch("/api/rooms/by-invite", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ inviteCode, join: true }),
-    });
-    const json = await res.json();
-    setJoining(false);
-    if (!res.ok) {
-      toast.error(json.error || "Could not open table");
-      return;
-    }
-    toast.success(json.message || "Opening table…");
-    e.currentTarget.reset();
-    if (json.path) {
-      window.location.href = json.path;
+    const inviteCode = String(form.get("inviteCode") || "").trim().toUpperCase();
+    try {
+      const res = await fetch("/api/rooms/by-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inviteCode, join: true }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        // If the API still resolved a room, open it anyway.
+        const fallbackId = json.room?.id as string | undefined;
+        const fallbackCode = (json.room?.inviteCode as string | undefined) || inviteCode;
+        if (fallbackId) {
+          toast.error(json.error || "Could not auto-join — opening table…");
+          window.location.assign(
+            `/rooms/${fallbackId}?invite=${encodeURIComponent(fallbackCode)}`,
+          );
+          return;
+        }
+        toast.error(json.error || "Could not open table");
+        return;
+      }
+      const path =
+        (json.path as string | undefined) ||
+        (json.room?.id
+          ? `/rooms/${json.room.id}?invite=${encodeURIComponent(
+              (json.room.inviteCode as string) || inviteCode,
+            )}`
+          : null);
+      if (!path) {
+        toast.error("Table found but no link returned");
+        return;
+      }
+      toast.success(json.message || "Opening table…");
+      e.currentTarget.reset();
+      window.location.assign(path);
+    } catch {
+      toast.error("Could not open table");
+    } finally {
+      setJoining(false);
     }
   }
 
@@ -263,7 +287,7 @@ export default function RoomsPage() {
             </div>
             <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
               <input type="checkbox" name="isPrivate" className="accent-[var(--gold)]" />
-              Private (invite code) — recommended for REAL
+              Private (invite code required to join)
             </label>
             <Button type="submit" disabled={creating} className="w-full">
               {creating ? "Creating…" : "Create table"}

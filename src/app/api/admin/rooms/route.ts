@@ -97,7 +97,7 @@ export async function POST(req: Request) {
   }
 
   const settings = await getPlatformSettings();
-  const isPrivate = data.type === "REAL" ? data.isPrivate : false;
+  const isPrivate = Boolean(data.isPrivate);
 
   const room = await prisma.room.create({
     data: {

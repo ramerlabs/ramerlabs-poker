@@ -30,7 +30,9 @@ export async function POST(req: Request, { params }: Params) {
   }
 
   if (room.isPrivate) {
-    if (!parsed.data.inviteCode || parsed.data.inviteCode !== room.inviteCode) {
+    const given = parsed.data.inviteCode?.trim().toUpperCase() ?? "";
+    const expected = room.inviteCode?.trim().toUpperCase() ?? "";
+    if (!given || given !== expected) {
       return NextResponse.json({ error: "Invalid invite code" }, { status: 403 });
     }
   }

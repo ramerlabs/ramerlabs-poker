@@ -46,12 +46,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No open table found for that invite code" }, { status: 404 });
   }
 
+  const path = `/rooms/${room.id}?invite=${encodeURIComponent(room.inviteCode)}`;
+
   let waitlist: {
     waiting: boolean;
     seated?: boolean;
     position?: number | null;
     message?: string;
   } | null = null;
+  let waitlistWarning: string | null = null;
   if (parsed.data.join) {
     const alreadySeated = room.players.some((p) => p.userId === authResult.userId);
     if (!alreadySeated) {
@@ -64,18 +67,9 @@ export async function POST(req: Request) {
           message: result.message,
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Could not join table";
-        return NextResponse.json(
-          {
-            error: message,
-            room: {
-              id: room.id,
-              name: room.name,
-              inviteCode: room.inviteCode,
-            },
-          },
-          { status: 400 },
-        );
+        // Still open the table — user can join/sit from the room page.
+        waitlistWarning =
+          error instanceof Error ? error.message : "Could not auto-join waitlist";
       }
     } else {
       waitlist = { waiting: false, seated: true };
@@ -98,7 +92,10 @@ export async function POST(req: Request) {
       club: room.club,
     },
     waitlist,
-    path: `/rooms/${room.id}?invite=${encodeURIComponent(room.inviteCode)}`,
-    message: `Opening “${room.name}”…`,
+    waitlistWarning,
+    path,
+    message: waitlistWarning
+      ? `Opening “${room.name}”… (${waitlistWarning})`
+      : `Opening “${room.name}”…`,
   });
 }

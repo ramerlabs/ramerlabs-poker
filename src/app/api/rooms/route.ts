@@ -109,7 +109,7 @@ export async function POST(req: Request) {
     currency = "CREDITS";
   }
 
-  const isPrivate = data.type === "REAL" ? data.isPrivate : false;
+  const isPrivate = Boolean(data.isPrivate);
   const settings = await getPlatformSettings();
   const rakePercent =
     data.type === "REAL" ? toNumber(settings.defaultRakePercent) : 0;

@@ -252,7 +252,7 @@ export default function RoomDetailPage() {
             `You are on the waitlist (#${json.position ?? "?"}). Click an Open seat to sit.`,
         );
       }
-      await load();
+      await load(inviteCode || undefined);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Join failed");
     } finally {
@@ -342,7 +342,7 @@ export default function RoomDetailPage() {
               type="button"
               variant="ghost"
               disabled={busy}
-              onClick={() => void load()}
+              onClick={() => void load(inviteCode || undefined)}
             >
               Retry
             </Button>
