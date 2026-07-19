@@ -783,6 +783,17 @@ export function PokerTable({
     return () => clearInterval(id);
   }, [secondsLeft, waiting, state.actionSeat, canActNow, refresh]);
 
+  // Force server ticks when the hand is complete (winner shown) but next hand
+  // hasn't dealt yet — the stuck-timer effect above doesn't fire when waiting.
+  useEffect(() => {
+    if (!waiting || seatedCount < 2) return;
+    const id = setInterval(() => {
+      void refresh({ tick: true, force: true });
+    }, 800);
+    void refresh({ tick: true, force: true });
+    return () => clearInterval(id);
+  }, [waiting, seatedCount, refresh]);
+
   // Chips fly + action SFX for everyone watching (seated or spectator)
   useEffect(() => {
     const action = state.lastAction;
