@@ -103,8 +103,10 @@ const DEALER_Y = "40%";
 /** Fallback when pot DOM hasn't measured yet (left of center dealer). */
 const POT_FALLBACK = { x: "38%", y: "40%" };
 
+type SeatLayout = Record<number, { left: string; top: string }>;
+
 /** Seats on the rail — tucked closer to the felt edge without covering the board. */
-const SEAT_LAYOUT: Record<number, { left: string; top: string }> = {
+const SEAT_LAYOUT: SeatLayout = {
   0: { left: "50%", top: "3%" },
   1: { left: "83%", top: "11%" },
   2: { left: "93%", top: "46%" },
@@ -116,18 +118,34 @@ const SEAT_LAYOUT: Record<number, { left: string; top: string }> = {
   8: { left: "68%", top: "3%" },
 };
 
+/** Phone / fullscreen — seats pulled inward so nodes stay on-screen. */
+const SEAT_LAYOUT_MOBILE: SeatLayout = {
+  0: { left: "50%", top: "7%" },
+  1: { left: "78%", top: "16%" },
+  2: { left: "88%", top: "46%" },
+  3: { left: "78%", top: "78%" },
+  4: { left: "50%", top: "90%" },
+  5: { left: "22%", top: "78%" },
+  6: { left: "12%", top: "46%" },
+  7: { left: "22%", top: "16%" },
+  8: { left: "66%", top: "7%" },
+};
+
 function isBot(userId: string) {
   return userId.startsWith("bot_");
 }
 
-function seatOrigin(seat: number): { x: string; y: string } {
-  const pos = SEAT_LAYOUT[seat] ?? SEAT_LAYOUT[0]!;
+function seatOrigin(seat: number, layout: SeatLayout = SEAT_LAYOUT): { x: string; y: string } {
+  const pos = layout[seat] ?? layout[0]!;
   return { x: pos.left, y: pos.top };
 }
 
 /** Place bet/call chips between the seat and the pot. */
-function seatBetToward(seat: number): "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw" {
-  const pos = SEAT_LAYOUT[seat] ?? SEAT_LAYOUT[0]!;
+function seatBetToward(
+  seat: number,
+  layout: SeatLayout = SEAT_LAYOUT,
+): "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw" {
+  const pos = layout[seat] ?? layout[0]!;
   const left = Number.parseFloat(pos.left);
   const top = Number.parseFloat(pos.top);
   const dx = 50 - left;
@@ -252,6 +270,7 @@ export function PokerTable({
   viewerSeat = null,
   preferredSeat = null,
   inviteCode,
+  fullscreen = false,
   onPlayersChanged,
   onSitResult,
 }: {
@@ -269,11 +288,14 @@ export function PokerTable({
   viewerSeat?: number | null;
   preferredSeat?: number | null;
   inviteCode?: string;
+  /** Immersive phone / fullscreen play layout */
+  fullscreen?: boolean;
   onPlayersChanged?: () => void;
   onSitResult?: (msg: string) => void;
 }) {
   const { data: session } = useSession();
   const myUserId = viewerUserId || session?.user?.id;
+  const [narrow, setNarrow] = useState(false);
   const [state, setState] = useState(initialState);
   const [players, setPlayers] = useState(initialPlayers);
   const [raiseTo, setRaiseTo] = useState("");
@@ -314,6 +336,18 @@ export function PokerTable({
     setMutedState(loadMutePreference());
     return armAudioUnlock();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 768px)");
+    const sync = () => setNarrow(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  const compact = fullscreen || narrow;
+  const seatLayout = compact ? SEAT_LAYOUT_MOBILE : SEAT_LAYOUT;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -373,7 +407,7 @@ export function PokerTable({
 
     const throws: DealThrow[] = [];
     seatsInHand.forEach((seat, seatIdx) => {
-      const pos = seatOrigin(seat.seat);
+      const pos = seatOrigin(seat.seat, seatLayout);
       for (let card = 0; card < 2; card += 1) {
         throws.push({
           id: `deal-${state.handNumber}-${seat.seat}-${card}`,
@@ -692,7 +726,7 @@ export function PokerTable({
 
     const seat = state.seats.find((s) => s.userId === action.userId);
     if (!seat) return;
-    const origin = seatOrigin(seat.seat);
+    const origin = seatOrigin(seat.seat, seatLayout);
     const stamp = Date.now();
     const chips: BetFx[] = [0, 1, 2].map((i) => ({
       id: `${key}-${stamp}-${i}`,
@@ -1086,16 +1120,24 @@ export function PokerTable({
   );
 
   return (
-    <div className="poker-shell space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <div
+      className={cn(
+        "poker-shell space-y-3",
+        compact && "is-compact",
+        fullscreen && "is-fullscreen",
+      )}
+    >
+      <div className="poker-chrome flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Badge>{state.street.toUpperCase()}</Badge>
           <Badge tone="muted">Hand #{state.handNumber}</Badge>
-          <Badge tone="muted">{seatedCount} seated</Badge>
-          {state.rakePercent > 0 && <Badge tone="gold">Rake {state.rakePercent}%</Badge>}
+          {!compact && <Badge tone="muted">{seatedCount} seated</Badge>}
+          {!compact && state.rakePercent > 0 && (
+            <Badge tone="gold">Rake {state.rakePercent}%</Badge>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {isAdmin && (
+          {isAdmin && !compact && (
             <>
               <Button
                 disabled={busy || seatedCount >= maxPlayers}
@@ -1130,7 +1172,8 @@ export function PokerTable({
             }}
             title={muted ? "Unmute table sounds" : "Mute table sounds"}
           >
-            {muted ? "🔇 Sound off" : "🔊 Sound on"}
+            {muted ? "🔇" : "🔊"}
+            {!compact && (muted ? " Sound off" : " Sound on")}
           </Button>
           {!waiting && state.actionSeat != null && (
             <>
@@ -1149,14 +1192,14 @@ export function PokerTable({
         </div>
       </div>
 
-      {waiting && seatedCount < 2 && (
+      {waiting && seatedCount < 2 && !compact && (
         <div className="rounded-xl border border-[rgba(212,168,83,0.35)] bg-[rgba(212,168,83,0.08)] px-4 py-3 text-sm">
           Texas Hold&apos;em needs <strong>2+ players</strong>. The table auto-deals when ready.
         </div>
       )}
 
       {canActNow ? (
-      <div className="table-action-dock">
+      <div className={cn("table-action-dock", compact && "is-mobile-sticky")}>
         <div className="flex flex-wrap items-center gap-2">
           <div className="action-bar">
               <Button disabled={busy} variant="danger" onClick={() => void act("fold")}>
@@ -1492,7 +1535,7 @@ export function PokerTable({
         <div className="pointer-events-none absolute inset-0 z-20 overflow-visible">
         {seatSlots.map((seatIndex) => {
           const seat = occupiedSeats.get(seatIndex);
-          const pos = SEAT_LAYOUT[seatIndex] ?? SEAT_LAYOUT[seatIndex % 9]!;
+          const pos = seatLayout[seatIndex] ?? seatLayout[seatIndex % 9]!;
           const reservedHere = preferredSeat === seatIndex;
           const isMe = Boolean(seat && myUserId && seat.userId === myUserId);
 
@@ -1614,7 +1657,7 @@ export function PokerTable({
               )}
 
               {seat.bet > 0 && !(seat.lastAction === "check" || seat.lastAction === "fold") && (
-                <ChipPile amount={seat.bet} toward={seatBetToward(seat.seat)} />
+                <ChipPile amount={seat.bet} toward={seatBetToward(seat.seat, seatLayout)} />
               )}
 
               {isAdmin && isBot(seat.userId) && waiting && (

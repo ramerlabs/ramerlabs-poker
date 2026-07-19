@@ -125,7 +125,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <main className="mx-auto max-w-7xl px-4 py-6 md:px-6 md:py-8">{children}</main>
 
-      <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 gap-2 rounded-2xl border border-[var(--line)] bg-[rgba(7,11,18,0.9)] p-2 shadow-2xl backdrop-blur md:hidden">
+      <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 gap-2 rounded-2xl border border-[var(--line)] bg-[rgba(7,11,18,0.9)] p-2 shadow-2xl backdrop-blur md:hidden app-mobile-nav">
         {links.map((link) => {
           const Icon = link.icon;
           return (

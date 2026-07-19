@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/session";
 import { toNumber } from "@/lib/utils";
 import { getPublicGameState } from "@/lib/game-service";
 import { isBotUserId } from "@/lib/poker/bot";
-import { purgeStalePlayers, touchPresence } from "@/lib/table-roster";
+import { purgeStalePlayers } from "@/lib/table-roster";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -30,10 +30,8 @@ export async function GET(req: Request, { params }: Params) {
   // Only Ably echo should skip ticks — light polls still advance bots/timeouts
   const skipTick = new URL(req.url).searchParams.get("tick") === "0";
 
-  if (!light) {
-    await purgeStalePlayers(id);
-  }
-  await touchPresence(id, authResult.userId);
+  // Free idle seats; presence is refreshed only via /presence heartbeat + sit/actions
+  await purgeStalePlayers(id);
 
   const room = await prisma.room.findUnique({
     where: { id },

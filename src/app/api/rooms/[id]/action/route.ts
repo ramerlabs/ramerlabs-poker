@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireUser } from "@/lib/session";
 import { performAction, startRoomHand } from "@/lib/game-service";
 import { toPublicState } from "@/lib/poker/engine";
+import { touchPresence } from "@/lib/table-roster";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -22,6 +23,7 @@ export async function POST(req: Request, { params }: Params) {
   }
 
   try {
+    await touchPresence(id, authResult.userId);
     if (parsed.data.action === "start") {
       const state = await startRoomHand(id);
       return NextResponse.json({ state: toPublicState(state, authResult.userId) });

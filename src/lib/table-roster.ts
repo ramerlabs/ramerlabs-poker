@@ -7,13 +7,13 @@ import {
   rebuildSeatsFromDb,
   saveTableState,
 } from "@/lib/game-service";
-
-/** Humans idle longer than this are treated as disconnected. */
-export const PRESENCE_STALE_MS = 45_000;
 import { toNumber } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { customAlphabet } from "nanoid";
+
+/** Humans with no presence refresh for this long are disconnected (frees the seat). */
+export const PRESENCE_STALE_MS = 5 * 60_000;
 
 const botSuffix = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 6);
 

@@ -1,7 +1,8 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { Maximize2, Minimize2, Spade, X } from "lucide-react";
 import { PokerTable } from "@/components/poker-table";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
 import type { PublicTableState } from "@/lib/poker/types";
@@ -55,7 +56,12 @@ export default function RoomDetailPage() {
   const [hint, setHint] = useState<string | null>(null);
   const [inviteCode, setInviteCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [tableOpen, setTableOpen] = useState(false);
+  const [browserFs, setBrowserFs] = useState(false);
   const connectedRef = useRef(false);
+  const tableRootRef = useRef<HTMLDivElement>(null);
+  const autoOpenedRef = useRef(false);
 
   async function load(code?: string) {
     const invite = code || inviteCode;
@@ -88,13 +94,29 @@ export default function RoomDetailPage() {
     connectedRef.current = Boolean(data?.me.seated || data?.me.waiting);
   }, [data?.me.seated, data?.me.waiting]);
 
-  // Heartbeat while on this page; auto-disconnect on close / leave room route
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 768px)");
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  // Heartbeat while active on this page; idle players stop pinging and are purged after 5 min
   useEffect(() => {
     const roomId = params.id;
     if (!roomId) return;
 
+    let lastActivityAt = Date.now();
+    const markActive = () => {
+      lastActivityAt = Date.now();
+    };
+
     const ping = () => {
       if (!connectedRef.current) return;
+      // Only refresh presence if the user interacted recently (not just an open idle tab)
+      if (Date.now() - lastActivityAt > 45_000) return;
       void fetch(`/api/rooms/${roomId}/presence`, {
         method: "POST",
         credentials: "include",
@@ -102,8 +124,14 @@ export default function RoomDetailPage() {
       });
     };
 
+    markActive();
     ping();
-    const heart = setInterval(ping, 12_000);
+    const heart = setInterval(ping, 15_000);
+
+    window.addEventListener("pointerdown", markActive);
+    window.addEventListener("keydown", markActive);
+    window.addEventListener("touchstart", markActive, { passive: true });
+    window.addEventListener("focus", markActive);
 
     const disconnect = () => {
       if (!connectedRef.current) return;
@@ -121,6 +149,10 @@ export default function RoomDetailPage() {
 
     return () => {
       clearInterval(heart);
+      window.removeEventListener("pointerdown", markActive);
+      window.removeEventListener("keydown", markActive);
+      window.removeEventListener("touchstart", markActive);
+      window.removeEventListener("focus", markActive);
       window.removeEventListener("pagehide", disconnect);
       window.removeEventListener("beforeunload", disconnect);
       // Navigating away from the room page
@@ -134,6 +166,70 @@ export default function RoomDetailPage() {
       }
     };
   }, [params.id]);
+
+  const exitBrowserFullscreen = useCallback(() => {
+    if (typeof document === "undefined") return;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined);
+    }
+  }, []);
+
+  const enterBrowserFullscreen = useCallback(async () => {
+    const el = tableRootRef.current;
+    if (!el || typeof el.requestFullscreen !== "function") return;
+    try {
+      await el.requestFullscreen();
+    } catch {
+      // Browser may block without a stronger gesture — app fullscreen still works
+    }
+  }, []);
+
+  const openTable = useCallback(
+    async (opts?: { browserFs?: boolean }) => {
+      setTableOpen(true);
+      if (opts?.browserFs !== false && isMobile) {
+        // Allow layout paint before requesting OS fullscreen
+        requestAnimationFrame(() => {
+          void enterBrowserFullscreen();
+        });
+      }
+    },
+    [enterBrowserFullscreen, isMobile],
+  );
+
+  const closeTable = useCallback(() => {
+    exitBrowserFullscreen();
+    setTableOpen(false);
+  }, [exitBrowserFullscreen]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onFs = () => setBrowserFs(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const play = tableOpen && isMobile;
+    document.body.classList.toggle("table-play-mode", play);
+    document.body.style.overflow = play ? "hidden" : "";
+    return () => {
+      document.body.classList.remove("table-play-mode");
+      document.body.style.overflow = "";
+    };
+  }, [tableOpen, isMobile]);
+
+  // Auto-open the immersive table once when the player sits (mobile)
+  useEffect(() => {
+    if (!isMobile || !data?.me.seated) {
+      if (!data?.me.seated) autoOpenedRef.current = false;
+      return;
+    }
+    if (autoOpenedRef.current) return;
+    autoOpenedRef.current = true;
+    void openTable({ browserFs: true });
+  }, [isMobile, data?.me.seated, openTable]);
 
   async function join(e?: FormEvent) {
     e?.preventDefault();
@@ -196,6 +292,7 @@ export default function RoomDetailPage() {
       } else {
         connectedRef.current = false;
         setHint("Left the table. Stack returned to your wallet.");
+        if (isMobile) closeTable();
       }
       await load();
     } catch (err) {
@@ -236,12 +333,37 @@ export default function RoomDetailPage() {
   const waiting = data.me.waiting;
   const canStart = seated;
 
+  const table = (
+    <PokerTable
+      roomId={data.room.id}
+      tableName={data.room.name}
+      brandName="RamerLabs"
+      initialState={data.game.state}
+      players={data.room.players}
+      maxPlayers={data.room.maxPlayers}
+      canStart={canStart}
+      canSit={!seated}
+      viewerUserId={data.me.userId}
+      viewerSeat={data.me.seat}
+      preferredSeat={data.me.preferredSeat}
+      inviteCode={inviteCode || undefined}
+      fullscreen={isMobile && tableOpen}
+      onPlayersChanged={() => void load()}
+      onSitResult={(msg) => {
+        setHint(msg);
+        if (isMobile && !tableOpen) void openTable();
+      }}
+    />
+  );
+
   return (
     <div className="space-y-3 animate-fade-up">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold text-[var(--gold-soft)] md:text-3xl">{data.room.name}</h1>
+            <h1 className="text-2xl font-semibold text-[var(--gold-soft)] md:text-3xl">
+              {data.room.name}
+            </h1>
             <Badge tone={data.room.type === "FREE" ? "green" : "gold"}>{data.room.type}</Badge>
           </div>
           <p className="mt-1 text-xs text-[var(--muted)] md:text-sm">
@@ -263,8 +385,17 @@ export default function RoomDetailPage() {
           )}
           {!seated && !waiting && (
             <p className="mt-2 text-sm text-[var(--muted)]">
-              Click any <span className="text-[var(--gold-soft)]">Open seat</span> on the table to
-              join (buy-in {data.room.buyIn} {data.room.currency}).
+              {isMobile ? (
+                <>
+                  Tap <span className="text-[var(--gold-soft)]">Go to table</span> then choose an
+                  open seat (buy-in {data.room.buyIn} {data.room.currency}).
+                </>
+              ) : (
+                <>
+                  Click any <span className="text-[var(--gold-soft)]">Open seat</span> on the table
+                  to join (buy-in {data.room.buyIn} {data.room.currency}).
+                </>
+              )}
             </p>
           )}
         </div>
@@ -315,24 +446,95 @@ export default function RoomDetailPage() {
         </div>
       )}
 
-      <Panel className="p-2 md:p-3">
-        <PokerTable
-          roomId={data.room.id}
-          tableName={data.room.name}
-          brandName="RamerLabs"
-          initialState={data.game.state}
-          players={data.room.players}
-          maxPlayers={data.room.maxPlayers}
-          canStart={canStart}
-          canSit={!seated}
-          viewerUserId={data.me.userId}
-          viewerSeat={data.me.seat}
-          preferredSeat={data.me.preferredSeat}
-          inviteCode={inviteCode || undefined}
-          onPlayersChanged={() => void load()}
-          onSitResult={(msg) => setHint(msg)}
-        />
-      </Panel>
+      {isMobile && !tableOpen && (
+        <Panel className="room-mobile-lobby overflow-hidden p-0">
+          <div className="room-mobile-lobby-felt" aria-hidden />
+          <div className="relative z-[1] space-y-4 p-5">
+            <div className="flex items-center gap-3">
+              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-[#b8892d] to-[#d4a853] text-[#1a1205] shadow-[0_10px_28px_rgba(212,168,83,0.35)]">
+                <Spade className="h-5 w-5" />
+              </span>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--gold)]">
+                  Ready to play
+                </div>
+                <div className="text-lg font-semibold text-[var(--gold-soft)]">{data.room.name}</div>
+              </div>
+            </div>
+            <p className="text-sm leading-relaxed text-[var(--muted)]">
+              Open the table fullscreen for a phone-friendly felt, larger seats, and action buttons
+              that stay within reach.
+            </p>
+            <div className="flex flex-wrap gap-2 text-xs text-[var(--muted)]">
+              <span className="rounded-full border border-[var(--line)] bg-black/25 px-2.5 py-1">
+                {data.room.players.length}/{data.room.maxPlayers} seated
+              </span>
+              <span className="rounded-full border border-[var(--line)] bg-black/25 px-2.5 py-1">
+                {data.room.smallBlind}/{data.room.bigBlind} blinds
+              </span>
+              {seated && (
+                <span className="rounded-full border border-[rgba(62,207,142,0.45)] bg-[rgba(62,207,142,0.12)] px-2.5 py-1 text-[#c8f0dc]">
+                  Seat {(data.me.seat ?? 0) + 1}
+                </span>
+              )}
+            </div>
+            <Button
+              className="w-full !py-3.5 text-base font-semibold"
+              onClick={() => void openTable({ browserFs: true })}
+            >
+              Go to table
+            </Button>
+          </div>
+        </Panel>
+      )}
+
+      {!isMobile && (
+        <Panel className="p-2 md:p-3">
+          {table}
+        </Panel>
+      )}
+
+      {isMobile && tableOpen && (
+        <div ref={tableRootRef} className="table-fullscreen-root">
+          <div className="table-fullscreen-bar">
+            <button
+              type="button"
+              className="table-fs-btn"
+              onClick={closeTable}
+              aria-label="Close table"
+            >
+              <X className="h-5 w-5" />
+              <span>Close</span>
+            </button>
+            <div className="table-fs-title">{data.room.name}</div>
+            <div className="table-fs-actions">
+              {seated && (
+                <button
+                  type="button"
+                  className="table-fs-btn is-danger"
+                  disabled={busy}
+                  onClick={() => void leaveTable()}
+                >
+                  Leave
+                </button>
+              )}
+              <button
+                type="button"
+                className="table-fs-btn"
+                onClick={() => {
+                  if (browserFs) exitBrowserFullscreen();
+                  else void enterBrowserFullscreen();
+                }}
+                aria-label={browserFs ? "Exit fullscreen" : "Enter fullscreen"}
+              >
+                {browserFs ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+                <span>{browserFs ? "Exit" : "Full"}</span>
+              </button>
+            </div>
+          </div>
+          <div className="table-fullscreen-body">{table}</div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
-import { claimSeat } from "@/lib/table-roster";
+import { claimSeat, touchPresence } from "@/lib/table-roster";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -44,6 +44,7 @@ export async function POST(req: Request, { params }: Params) {
 
   try {
     const result = await claimSeat(id, authResult.userId, parsed.data.seat);
+    await touchPresence(id, authResult.userId);
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not sit";
