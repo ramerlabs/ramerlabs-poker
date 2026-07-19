@@ -529,6 +529,33 @@ a {
   margin-right: auto;
 }
 
+.felt-brand-center .brand-blinds {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  margin-top: 0.4rem;
+  font-size: clamp(0.7rem, 1.5vw, 0.9rem);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: rgba(245, 223, 160, 0.78);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.45);
+  tabular-nums: true;
+  font-variant-numeric: tabular-nums;
+}
+
+.felt-brand-center .brand-blinds-label {
+  margin-right: 0.2rem;
+  font-size: 0.72em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.felt-brand-center .brand-blinds-sep {
+  color: rgba(255, 255, 255, 0.28);
+}
+
 .board-row {
   display: flex;
   align-items: center;
@@ -2342,6 +2369,11 @@ body.table-play-mode .app-mobile-nav {
 
 .poker-shell.is-compact .felt-brand-center .brand-table {
   font-size: 0.7rem;
+}
+
+.poker-shell.is-compact .felt-brand-center .brand-blinds {
+  font-size: 0.68rem;
+  margin-top: 0.25rem;
 }
 
 .poker-shell.is-compact .tip-dealer-btn {

@@ -1373,11 +1373,14 @@ export function PokerTable({
       )}
     >
       <div className="poker-chrome flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge>
             {state.street === "fourth" ? "4TH" : state.street.toUpperCase()}
           </Badge>
           <Badge tone="muted">Hand #{state.handNumber}</Badge>
+          <Badge tone="gold">
+            SB {state.smallBlind} / BB {state.bigBlind}
+          </Badge>
           {!compact && <Badge tone="muted">{seatedCount} seated</Badge>}
           {!compact && state.rakePercent > 0 && (
             <Badge tone="gold">Rake {state.rakePercent}%</Badge>
@@ -1595,6 +1598,17 @@ export function PokerTable({
           <div className="felt-brand-center">
             <div className="brand-name">{brandName}</div>
             <div className="brand-table">{tableName}</div>
+            <div className="brand-blinds" aria-label="Current blinds">
+              <span>
+                <span className="brand-blinds-label">SB</span> {state.smallBlind}
+              </span>
+              <span className="brand-blinds-sep" aria-hidden>
+                ·
+              </span>
+              <span>
+                <span className="brand-blinds-label">BB</span> {state.bigBlind}
+              </span>
+            </div>
           </div>
 
           <div className="board-row pointer-events-auto">

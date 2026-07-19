@@ -395,8 +395,9 @@ export default function RoomDetailPage() {
             {data.room.club && <Badge tone="gold">{data.room.club.name}</Badge>}
           </div>
           <p className="mt-1 text-xs text-[var(--muted)] md:text-sm">
-            Blinds {data.room.smallBlind}/{data.room.bigBlind} · Buy-in {data.room.buyIn}{" "}
-            {data.room.currency} · {data.room.players.length}/{data.room.maxPlayers} seated
+            Small blind {data.room.smallBlind} · Big blind {data.room.bigBlind} · Buy-in{" "}
+            {data.room.buyIn} {data.room.currency} · {data.room.players.length}/
+            {data.room.maxPlayers} seated
             {data.room.waitlist.length > 0 ? ` · ${data.room.waitlist.length} waiting` : ""}
           </p>
           {data.room.club && (
@@ -504,7 +505,7 @@ export default function RoomDetailPage() {
                 {data.room.players.length}/{data.room.maxPlayers} seated
               </span>
               <span className="rounded-full border border-[var(--line)] bg-black/25 px-2.5 py-1">
-                {data.room.smallBlind}/{data.room.bigBlind} blinds
+                SB {data.room.smallBlind} / BB {data.room.bigBlind}
               </span>
               {seated && (
                 <span className="rounded-full border border-[rgba(62,207,142,0.45)] bg-[rgba(62,207,142,0.12)] px-2.5 py-1 text-[#c8f0dc]">
