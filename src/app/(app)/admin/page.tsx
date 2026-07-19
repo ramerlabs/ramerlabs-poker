@@ -68,6 +68,16 @@ type AdminTicket = {
   user: { id: string; name: string | null; email: string };
 };
 
+type AblySettings = {
+  ablyEnabled: boolean;
+  hasAdminKey: boolean;
+  adminKeyMasked: string;
+  envKeyConfigured: boolean;
+  active: boolean;
+  mode: "ably" | "polling";
+  keySource: string;
+};
+
 export default function AdminPage() {
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [rooms, setRooms] = useState<AdminRoom[]>([]);
@@ -77,6 +87,8 @@ export default function AdminPage() {
   const [ticketStatus, setTicketStatus] = useState("");
   const [ticketPriority, setTicketPriority] = useState("");
   const [ticketCategory, setTicketCategory] = useState("");
+  const [ably, setAbly] = useState<AblySettings | null>(null);
+  const [ablyKeyInput, setAblyKeyInput] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -96,14 +108,16 @@ export default function AdminPage() {
   }
 
   async function load() {
-    const [curRes, rakeRes, roomsRes] = await Promise.all([
+    const [curRes, rakeRes, roomsRes, ablyRes] = await Promise.all([
       fetch("/api/admin/currencies"),
       fetch("/api/admin/rake"),
       fetch("/api/admin/rooms"),
+      fetch("/api/admin/ably"),
     ]);
     const curJson = await curRes.json();
     const rakeJson = await rakeRes.json();
     const roomsJson = await roomsRes.json();
+    const ablyJson = await ablyRes.json();
     if (!curRes.ok) {
       setError(curJson.error || "Admin access required");
       return;
@@ -114,6 +128,10 @@ export default function AdminPage() {
       setRecentRake(rakeJson.recent ?? []);
     }
     if (roomsRes.ok) setRooms(roomsJson.rooms ?? []);
+    if (ablyRes.ok) {
+      setAbly(ablyJson.settings);
+      setAblyKeyInput("");
+    }
     await loadTickets({
       status: ticketStatus,
       priority: ticketPriority,
@@ -263,6 +281,36 @@ export default function AdminPage() {
     setMessage("Rake settings saved — applies to new REAL rooms");
   }
 
+  async function saveAbly(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    setMessage(null);
+    const form = new FormData(e.currentTarget);
+    const enabled = form.get("ablyEnabled") === "on";
+    const clearKey = form.get("clearApiKey") === "on";
+    const res = await fetch("/api/admin/ably", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ablyEnabled: enabled,
+        clearApiKey: clearKey,
+        ablyApiKey: clearKey ? null : ablyKeyInput.trim() || undefined,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      setError(json.error || "Ably update failed");
+      return;
+    }
+    setAbly(json.settings);
+    setAblyKeyInput("");
+    setMessage(
+      json.settings.active
+        ? "Ably realtime is ON"
+        : "Ably is OFF — tables will use polling",
+    );
+  }
+
   const openRooms = rooms.filter((r) => r.status !== "CLOSED");
 
   return (
@@ -273,6 +321,71 @@ export default function AdminPage() {
           Create branded tables, manage currencies, and track house rake.
         </p>
       </div>
+
+      <Panel className="p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">Ably realtime</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Live table sync. When off (or no key), clients poll instead.
+            </p>
+          </div>
+          {ably && (
+            <Badge tone={ably.active ? "green" : "muted"}>
+              {ably.active ? "Live (Ably)" : "Polling"}
+            </Badge>
+          )}
+        </div>
+
+        {ably && (
+          <form
+            key={`ably-${ably.ablyEnabled}-${ably.hasAdminKey}-${ably.mode}`}
+            onSubmit={saveAbly}
+            className="mt-5 space-y-4"
+          >
+            <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
+              <input
+                type="checkbox"
+                name="ablyEnabled"
+                defaultChecked={ably.ablyEnabled}
+                className="h-4 w-4 rounded border-[var(--line)]"
+              />
+              Enable Ably realtime
+            </label>
+
+            <div>
+              <Label htmlFor="ablyApiKey">API key</Label>
+              <Input
+                id="ablyApiKey"
+                value={ablyKeyInput}
+                onChange={(e) => setAblyKeyInput(e.target.value)}
+                placeholder={
+                  ably.hasAdminKey
+                    ? ably.adminKeyMasked || "Key saved — paste a new key to replace"
+                    : ably.envKeyConfigured
+                      ? "Using env ABLY_API_KEY — paste here to override"
+                      : "Paste Ably API key (appId.keyId:secret)"
+                }
+                autoComplete="off"
+              />
+              <p className="mt-1 text-[11px] text-[var(--muted)]">
+                Source: {ably.keySource}
+                {ably.envKeyConfigured ? " · env key present" : ""}
+                {ably.hasAdminKey ? " · admin key saved" : ""}
+              </p>
+            </div>
+
+            {ably.hasAdminKey && (
+              <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
+                <input type="checkbox" name="clearApiKey" className="h-4 w-4 rounded border-[var(--line)]" />
+                Clear saved admin key (fall back to env)
+              </label>
+            )}
+
+            <Button type="submit">Save Ably settings</Button>
+          </form>
+        )}
+      </Panel>
 
       <Panel className="p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">

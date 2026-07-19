@@ -39,8 +39,8 @@ New registrations receive **1,000 credits**.
 | `DATABASE_URL` | Neon Postgres connection string |
 | `AUTH_SECRET` | NextAuth secret |
 | `NEXTAUTH_URL` | App URL |
-| `ABLY_API_KEY` | Optional Ably key for live table sync |
-| `ABLY_ENABLED` | Optional toggle (`true`/`false`). Default on when key is set; set `false` to force polling |
+| `ABLY_API_KEY` | Optional Ably key fallback (Admin can override) |
+| `ABLY_ENABLED` | Optional env kill-switch (`false` forces polling). Admin toggle is preferred |
 
 Never commit `.env` / `.env.local`. Rotate any credentials that were shared in chat.
 

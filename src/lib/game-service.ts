@@ -32,6 +32,7 @@ export async function getPlatformSettings() {
       defaultRakePercent: 5,
       defaultRakeCap: 3,
       houseBalances: {},
+      ablyEnabled: true,
     },
   });
 }

@@ -147,6 +147,10 @@ model PlatformSettings {
   defaultRakeCap     Decimal @default(3) @db.Decimal(18, 2)
   /// Aggregated house earnings by currency code -> balance
   houseBalances      Json    @default("{}")
+  /// When false, force polling even if an Ably key is configured.
+  ablyEnabled        Boolean @default(true)
+  /// Optional Ably API key stored by admin (falls back to env ABLY_API_KEY).
+  ablyApiKey         String?
   updatedAt          DateTime @updatedAt
 }
 

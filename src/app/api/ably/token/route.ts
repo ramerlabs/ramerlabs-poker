@@ -1,23 +1,25 @@
 import { NextResponse } from "next/server";
-import { getAblyRest, isAblyEnabled } from "@/lib/ably";
+import { getAblyConfig, getAblyRest, isAblyEnabled, maskAblyKey } from "@/lib/ably";
 import { requireUser } from "@/lib/session";
 
 export async function GET() {
   const authResult = await requireUser();
   if ("error" in authResult && authResult.error) return authResult.error;
 
-  if (!isAblyEnabled()) {
-    const hasKey = Boolean(process.env.ABLY_API_KEY?.trim());
+  const cfg = await getAblyConfig();
+  if (!(await isAblyEnabled())) {
     return NextResponse.json({
       enabled: false,
       mode: "polling",
-      message: hasKey
-        ? "Ably is toggled off (ABLY_ENABLED=false) — client will poll for updates"
-        : "ABLY_API_KEY not configured — client will poll for updates",
+      message: !cfg.adminEnabled
+        ? "Ably is disabled in Admin settings — client will poll for updates"
+        : !cfg.hasKey
+          ? "No Ably API key configured — client will poll for updates"
+          : "Ably unavailable — client will poll for updates",
     });
   }
 
-  const rest = getAblyRest();
+  const rest = await getAblyRest();
   if (!rest) {
     return NextResponse.json({ enabled: false, mode: "polling" });
   }
@@ -29,5 +31,10 @@ export async function GET() {
     },
   });
 
-  return NextResponse.json({ enabled: true, mode: "ably", tokenRequest });
+  return NextResponse.json({
+    enabled: true,
+    mode: "ably",
+    tokenRequest,
+    keyHint: maskAblyKey(cfg.apiKey),
+  });
 }
