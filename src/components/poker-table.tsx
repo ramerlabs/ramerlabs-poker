@@ -326,6 +326,10 @@ export function PokerTable({
     setState(initialState);
     setPlayers(initialPlayers);
   }, [initialState, initialPlayers]);
+
+  useEffect(() => {
+    setChatOn(chatEnabled);
+  }, [chatEnabled]);
   const [raiseTo, setRaiseTo] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -351,6 +355,7 @@ export function PokerTable({
   const [chatBubbles, setChatBubbles] = useState<TableChatBubble[]>([]);
   const [chatText, setChatText] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
+  const [chatOn, setChatOn] = useState(chatEnabled);
   const [buyInSeat, setBuyInSeat] = useState<number | null>(null);
   const [buyInAmount, setBuyInAmount] = useState("");
   const [walletLeft, setWalletLeft] = useState(walletBalance);
@@ -365,6 +370,8 @@ export function PokerTable({
   const autoFolding = useRef(false);
   const actingRef = useRef(false);
   const [autoFoldNonce, setAutoFoldNonce] = useState(0);
+  /** Full turn clock from when OUR popup opens — not from server turnStartedAt (latency ate that). */
+  const localTurnEndsAtRef = useRef<number | null>(null);
   const attentionLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hadActableTurn = useRef(false);
   const voluntaryActRef = useRef(false);
@@ -579,13 +586,14 @@ export function PokerTable({
         }
         const json = await readJson<{
           game?: { state?: PublicTableState };
-          room?: { players?: RoomPlayer[] };
+          room?: { players?: RoomPlayer[]; chatEnabled?: boolean };
           chats?: TableChatBubble[];
         }>(res);
         setLatencyMs(Math.min(ms, 9999));
         setConnFails(0);
         if (json.game?.state) setState(json.game.state);
         if (json.room?.players) setPlayers(json.room.players);
+        if (typeof json.room?.chatEnabled === "boolean") setChatOn(json.room.chatEnabled);
         if (json.chats?.length) {
           for (const chat of json.chats) ingestChat(chat);
         }
@@ -740,9 +748,11 @@ export function PokerTable({
     });
   }, [winnerVisible, state.handNumber]);
 
-  // Countdown from server turnStartedAt — frozen after user acts
+  // Countdown: for OUR turn use a local deadline started when the popup opens
+  // (server turnStartedAt is often already half-spent by the time UI learns it's our turn).
+  // For everyone else, still show the server clock.
   useEffect(() => {
-    if (waiting || state.actionSeat == null || !state.turnStartedAt) {
+    if (waiting || state.actionSeat == null) {
       setSecondsLeft(turnSeconds);
       return;
     }
@@ -753,13 +763,21 @@ export function PokerTable({
         setSecondsLeft(actedAtRef.current);
         return;
       }
-      const elapsed = Math.floor((Date.now() - (state.turnStartedAt ?? Date.now())) / 1000);
+      if (canActNow && localTurnEndsAtRef.current != null) {
+        setSecondsLeft(Math.max(0, Math.ceil((localTurnEndsAtRef.current - Date.now()) / 1000)));
+        return;
+      }
+      if (!state.turnStartedAt) {
+        setSecondsLeft(turnSeconds);
+        return;
+      }
+      const elapsed = Math.floor((Date.now() - state.turnStartedAt) / 1000);
       setSecondsLeft(Math.max(0, turnSeconds - elapsed));
     };
     tick();
     const id = setInterval(tick, 200);
     return () => clearInterval(id);
-  }, [state.actionSeat, state.turnStartedAt, state.handNumber, turnSeconds, waiting]);
+  }, [state.actionSeat, state.turnStartedAt, state.handNumber, turnSeconds, waiting, canActNow]);
 
   // Fade away status hints so floating felt text doesn’t linger
   useEffect(() => {
@@ -1021,15 +1039,26 @@ export function PokerTable({
         setAttentionAcked(false);
         setAttentionOpen(true);
         popupOpenedAtRef.current = Date.now();
+        // Always grant a full turn from the moment the player can see the buttons
+        localTurnEndsAtRef.current = Date.now() + turnSeconds * 1000;
+        setSecondsLeft(turnSeconds);
         void unlockAudio();
         playSfx("alert");
       } else if (!attentionOpen) {
         setAttentionOpen(true);
         popupOpenedAtRef.current = Date.now();
+        if (localTurnEndsAtRef.current == null) {
+          localTurnEndsAtRef.current = Date.now() + turnSeconds * 1000;
+          setSecondsLeft(turnSeconds);
+        }
         void unlockAudio();
         playSfx("alert");
       }
       return;
+    }
+
+    if (!isMyTurn) {
+      localTurnEndsAtRef.current = null;
     }
 
     // Server/client folded you after an actable turn — show timeout popup
@@ -1065,38 +1094,29 @@ export function PokerTable({
     state.handNumber,
   ]);
 
-  // Auto-fold when timer hits 0 on your turn — but give 1.5s grace so the
-  // popup actually appears before the fold fires (latency can eat the clock).
-  // If we hit 0 during the grace window, schedule a retry after the remaining
-  // grace time — otherwise the effect never re-runs and the UI stays stuck at 0s.
+  // Auto-fold only after the LOCAL full turn expires (started when popup opened).
+  // Never fold from a near-zero server clock the moment the popup appears.
   useEffect(() => {
     if (!canActNow || secondsLeft > 0 || busy || autoFolding.current || actingRef.current) {
       return;
     }
-
-    const GRACE_MS = 1500;
-    const timeSincePopup = attentionOpen ? Date.now() - popupOpenedAtRef.current : 0;
-    const remainingGrace = Math.max(0, GRACE_MS - timeSincePopup);
-
-    const fire = () => {
-      if (!canActNow || autoFolding.current || actingRef.current) return;
-      autoFolding.current = true;
-      setTimeoutNotice(true);
-      setAttentionLeaving(false);
-      setAttentionOpen(true);
-      setHint("Time’s up — auto-folding…");
-      playSfx("timeout");
-      void act("fold", undefined, true);
-    };
-
-    if (remainingGrace > 0) {
-      const id = window.setTimeout(fire, remainingGrace);
+    // Require the popup to have been open for nearly a full turn
+    const openedFor = attentionOpen ? Date.now() - popupOpenedAtRef.current : 0;
+    const minOpenMs = Math.max(3000, turnSeconds * 1000 - 500);
+    if (openedFor < minOpenMs) {
+      const id = window.setTimeout(() => setAutoFoldNonce((n) => n + 1), minOpenMs - openedFor);
       return () => clearTimeout(id);
     }
 
-    fire();
+    autoFolding.current = true;
+    setTimeoutNotice(true);
+    setAttentionLeaving(false);
+    setAttentionOpen(true);
+    setHint("Time’s up — auto-folding…");
+    playSfx("timeout");
+    void act("fold", undefined, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [secondsLeft, canActNow, busy, attentionOpen, autoFoldNonce]);
+  }, [secondsLeft, canActNow, busy, attentionOpen, autoFoldNonce, turnSeconds]);
 
   // Repeat alert until muted or turn ends / timed out
   useEffect(() => {
@@ -1924,7 +1944,7 @@ export function PokerTable({
         </div>
       </div>
 
-      {mySeat && chatEnabled ? (
+      {mySeat && chatOn ? (
         <form className="table-chat-dock" onSubmit={(e) => void sendChat(e)}>
           <Input
             value={chatText}

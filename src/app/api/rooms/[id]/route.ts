@@ -110,6 +110,7 @@ export async function GET(req: Request, { params }: Params) {
     room: light
       ? {
           id: room.id,
+          chatEnabled: room.chatEnabled,
           players: room.players.map((p) => ({
             ...p,
             stack: toNumber(p.stack),

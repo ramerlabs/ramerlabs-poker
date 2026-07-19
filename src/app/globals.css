@@ -892,28 +892,37 @@ a {
   position: relative;
   z-index: 2;
   margin-bottom: -0.55rem;
+  overflow: visible;
+}
+
+.seat-on-rail,
+.seat-node {
+  overflow: visible;
 }
 
 .seat-chat-bubble {
   position: absolute;
   z-index: 12;
   top: -0.15rem;
-  max-width: min(260px, 60vw);
-  padding: 0.4rem 0.7rem;
+  /* Escape the narrow avatar box — without this, shrink-to-fit collapses to ~44px */
+  width: max-content;
+  max-width: min(260px, 55vw);
+  min-width: 72px;
+  padding: 0.4rem 0.75rem;
   border-radius: 12px;
   border: 1px solid rgba(212, 168, 83, 0.45);
   background: linear-gradient(165deg, rgba(36, 30, 18, 0.96), rgba(12, 16, 24, 0.95));
   color: #f3e7c8;
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 600;
   line-height: 1.35;
   text-align: left;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
   pointer-events: none;
   animation: seat-chat-pop 5s ease both;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .seat-chat-bubble.is-left {
@@ -992,9 +1001,25 @@ a {
 }
 
 .poker-shell.is-compact .seat-chat-bubble {
-  max-width: min(160px, 46vw);
-  font-size: 0.65rem;
-  padding: 0.28rem 0.5rem;
+  max-width: min(200px, 52vw);
+  min-width: 64px;
+  font-size: 0.7rem;
+  padding: 0.32rem 0.55rem;
+}
+
+.table-chat-dock {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 45;
+}
+
+.poker-shell {
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+}
+
+.poker-shell.is-fullscreen .table-chat-dock {
+  flex-shrink: 0;
+  margin-bottom: 0.25rem;
 }
 
 .buyin-overlay {

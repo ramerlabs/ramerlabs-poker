@@ -245,12 +245,14 @@ export async function enforceTurnTimeout(roomId: string): Promise<PokerTableStat
     state.street !== "complete" &&
     state.street !== "showdown"
   ) {
-    // Extra grace so a slow Call POST isn't beaten by a poll that auto-folds
-    const limitMs = (state.turnSeconds || DEFAULT_TURN_SECONDS) * 1000 + 2500;
-    if (Date.now() - state.turnStartedAt < limitMs) break;
-
     const actor = state.seats.find((s) => s.seat === state.actionSeat);
     if (!actor) break;
+
+    // Humans get a large network grace: polls are often 1–3s and the UI may
+    // learn about the turn late. Bots use the base clock only as a stuck safety net.
+    const graceMs = isBotUserId(actor.userId) ? 0 : 12_000;
+    const limitMs = (state.turnSeconds || DEFAULT_TURN_SECONDS) * 1000 + graceMs;
+    if (Date.now() - state.turnStartedAt < limitMs) break;
 
     // Bots are normally advanced by advanceOneBotIfReady; if they still exceed
     // the human turn clock, force them forward so the table cannot freeze at 0s.
@@ -560,7 +562,7 @@ export async function performAction(
   if (!isCurrentActor) {
     prev = await enforceTurnTimeout(roomId);
   } else if (prev.turnStartedAt != null) {
-    const limitMs = (prev.turnSeconds || DEFAULT_TURN_SECONDS) * 1000 + 2500;
+    const limitMs = (prev.turnSeconds || DEFAULT_TURN_SECONDS) * 1000 + 12_000;
     if (Date.now() - prev.turnStartedAt >= limitMs) {
       prev = await enforceTurnTimeout(roomId);
     }

@@ -109,35 +109,42 @@ export default function AdminPage() {
   }
 
   async function load() {
-    const [curRes, rakeRes, roomsRes, ablyRes] = await Promise.all([
-      fetch("/api/admin/currencies"),
-      fetch("/api/admin/rake"),
-      fetch("/api/admin/rooms"),
-      fetch("/api/admin/ably"),
-    ]);
-    const curJson = await curRes.json();
-    const rakeJson = await rakeRes.json();
-    const roomsJson = await roomsRes.json();
-    const ablyJson = await ablyRes.json();
-    if (!curRes.ok) {
-      setError(curJson.error || "Admin access required");
-      return;
+    try {
+      const [curRes, rakeRes, roomsRes, ablyRes] = await Promise.all([
+        fetch("/api/admin/currencies"),
+        fetch("/api/admin/rake"),
+        fetch("/api/admin/rooms"),
+        fetch("/api/admin/ably"),
+      ]);
+      const [curJson, rakeJson, roomsJson, ablyJson] = await Promise.all([
+        curRes.json().catch(() => ({})),
+        rakeRes.json().catch(() => ({})),
+        roomsRes.json().catch(() => ({})),
+        ablyRes.json().catch(() => ({})),
+      ]);
+      if (!curRes.ok && !roomsRes.ok) {
+        setError(curJson.error || roomsJson.error || "Admin access required");
+        return;
+      }
+      setError(null);
+      if (curRes.ok) setCurrencies(curJson.currencies ?? []);
+      if (rakeRes.ok) {
+        setRake(rakeJson.settings);
+        setRecentRake(rakeJson.recent ?? []);
+      }
+      if (roomsRes.ok) setRooms(roomsJson.rooms ?? []);
+      if (ablyRes.ok) {
+        setAbly(ablyJson.settings);
+        setAblyKeyInput("");
+      }
+      await loadTickets({
+        status: ticketStatus,
+        priority: ticketPriority,
+        category: ticketCategory,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load admin data");
     }
-    setCurrencies(curJson.currencies ?? []);
-    if (rakeRes.ok) {
-      setRake(rakeJson.settings);
-      setRecentRake(rakeJson.recent ?? []);
-    }
-    if (roomsRes.ok) setRooms(roomsJson.rooms ?? []);
-    if (ablyRes.ok) {
-      setAbly(ablyJson.settings);
-      setAblyKeyInput("");
-    }
-    await loadTickets({
-      status: ticketStatus,
-      priority: ticketPriority,
-      category: ticketCategory,
-    });
   }
 
   useEffect(() => {
@@ -617,8 +624,13 @@ export default function AdminPage() {
                   Accuracy
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant={room.chatEnabled ? "felt" : "danger"}
                   onClick={() => void toggleChat(room.id, room.chatEnabled)}
+                  title={
+                    room.chatEnabled
+                      ? "Disable table chat for this room"
+                      : "Enable table chat for this room"
+                  }
                 >
                   Chat {room.chatEnabled ? "ON" : "OFF"}
                 </Button>
