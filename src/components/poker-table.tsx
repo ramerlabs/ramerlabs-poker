@@ -37,6 +37,16 @@ type BetFx = {
   delay: number;
 };
 
+/** Pot chips flying toward a winner's seat / stack. */
+type WinFx = {
+  id: string;
+  amount: number;
+  label: string;
+  toX: string;
+  toY: string;
+  delay: number;
+};
+
 type DealThrow = {
   id: string;
   toX: string;
@@ -339,6 +349,7 @@ export function PokerTable({
   const [connFails, setConnFails] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(DEFAULT_TURN_SECONDS);
   const [betFx, setBetFx] = useState<BetFx[]>([]);
+  const [winFx, setWinFx] = useState<WinFx[]>([]);
   const [potTarget, setPotTarget] = useState(POT_FALLBACK);
   const feltRef = useRef<HTMLDivElement>(null);
   const potAnchorRef = useRef<HTMLDivElement>(null);
@@ -544,14 +555,46 @@ export function PokerTable({
       return;
     }
     const key = `${state.handNumber}-${state.winners.map((w) => w.userId).join(",")}`;
-    if (key !== lastWinKey.current) {
-      lastWinKey.current = key;
-      playSfx("win");
-      setWinnerVisible(true);
+    if (key === lastWinKey.current) {
+      const hide = setTimeout(() => setWinnerVisible(false), 4800);
+      return () => clearTimeout(hide);
     }
+    lastWinKey.current = key;
+    playSfx("win");
+    setWinnerVisible(true);
+
+    // Pot chips fly to each winner's seat with chip clinks.
+    const stamp = Date.now();
+    const chips: WinFx[] = [];
+    const layout = seatLayout;
+    state.winners.forEach((w, wi) => {
+      const seat = state.seats.find((s) => s.userId === w.userId);
+      if (!seat) return;
+      const dest = seatOrigin(seat.seat, layout);
+      for (let i = 0; i < 5; i++) {
+        chips.push({
+          id: `win-${key}-${stamp}-${wi}-${i}`,
+          amount: w.amount,
+          label: i === 0 ? `+${w.amount.toLocaleString()}` : "",
+          toX: dest.x,
+          toY: dest.y,
+          delay: wi * 160 + i * 70,
+        });
+      }
+    });
+    if (chips.length) {
+      setWinFx((prev) => [...prev, ...chips]);
+      [40, 160, 280, 420, 560].forEach((ms) => {
+        window.setTimeout(() => playSfx("chip"), ms);
+      });
+      window.setTimeout(() => {
+        setWinFx((prev) => prev.filter((b) => !b.id.includes(`${key}-${stamp}`)));
+      }, 1700);
+    }
+
     const hide = setTimeout(() => setWinnerVisible(false), 4800);
     return () => clearTimeout(hide);
-  }, [state.winners, state.street, state.handNumber]);
+  }, [state.winners, state.street, state.handNumber, state.seats, seatLayout]);
 
   const refreshInflight = useRef<Promise<void> | null>(null);
 
@@ -1308,7 +1351,7 @@ export function PokerTable({
   const showWinner = winnerVisible && showWinnerOverlay;
   const primaryWinner = winners[0];
   const winnerIds = new Set(winners.map((w) => w.userId));
-  const showPot = !showWinner && livePot > 0;
+  const showPot = (!showWinner || winFx.length > 0) && livePot > 0;
   const connLevel = connectionLevel(online, connFails, latencyMs);
 
   const myHoleCards = useMemo(() => {
@@ -1415,117 +1458,70 @@ export function PokerTable({
       )}
 
       {canActNow ? (
-      <div className={cn("table-action-dock", compact && "is-mobile-sticky")}>
-        <div className="flex flex-wrap items-center gap-2">
+        <div
+          className={cn(
+            "table-action-dock is-your-turn",
+            compact && "is-mobile-sticky",
+            attentionUrgent && "is-urgent",
+          )}
+          role="region"
+          aria-label="Your turn actions"
+        >
+          <div className="action-dock-head">
+            <div className="action-dock-meta">
+              <span className="action-dock-eyebrow">
+                {attentionUrgent ? "Hurry" : "Your turn"}
+              </span>
+              <span className="action-dock-title">
+                {canCheck ? "Check or bet" : `Call ${callAmount}`}
+              </span>
+              <span className="action-dock-timer-label">{secondsLeft}s left</span>
+            </div>
+            <TurnTimer secondsLeft={secondsLeft} total={turnSeconds} />
+          </div>
           <div className="action-bar">
-              <Button disabled={busy} variant="danger" onClick={() => void act("fold")}>
-                Fold
+            <Button disabled={busy} variant="danger" onClick={() => void act("fold")}>
+              Fold
+            </Button>
+            {canCheck ? (
+              <Button disabled={busy} variant="ghost" onClick={() => void act("check")}>
+                Check
               </Button>
-              {canCheck ? (
-                <Button disabled={busy} variant="ghost" onClick={() => void act("check")}>
-                  Check
-                </Button>
-              ) : (
-                <Button disabled={busy} variant="felt" onClick={() => void act("call")}>
-                  Call {callAmount}
+            ) : (
+              <Button disabled={busy} variant="felt" onClick={() => void act("call")}>
+                Call {callAmount}
+              </Button>
+            )}
+            <Button disabled={busy} variant="ghost" onClick={() => void act("allin")}>
+              All-in
+            </Button>
+            <div className="raise-row">
+              <Input
+                className="w-28"
+                placeholder="Raise to"
+                value={raiseTo}
+                onChange={(e) => setRaiseTo(e.target.value)}
+              />
+              <Button
+                disabled={busy || !raiseTo}
+                onClick={() => void act("raise", Number(raiseTo))}
+              >
+                Raise
+              </Button>
+              {!attentionAcked && (
+                <Button disabled={busy} variant="ghost" onClick={acknowledgeAttention}>
+                  Mute alerts
                 </Button>
               )}
-              <Button disabled={busy} variant="ghost" onClick={() => void act("allin")}>
-                All-in
-              </Button>
-              <div className="flex items-center gap-2">
-                <Input
-                  className="w-28"
-                  placeholder="Raise to"
-                  value={raiseTo}
-                  onChange={(e) => setRaiseTo(e.target.value)}
-                />
-                <Button
-                  disabled={busy || !raiseTo}
-                  onClick={() => void act("raise", Number(raiseTo))}
-                >
-                  Raise
-                </Button>
-              </div>
             </div>
+          </div>
         </div>
-      </div>
       ) : null}
 
-      {(attentionOpen || attentionLeaving || timeoutNotice) && (
-        <div
-          className={cn("action-popup-overlay", attentionLeaving && "is-leaving")}
-          role="presentation"
-        >
-          <div
-            className={cn(
-              "action-popup",
-              attentionUrgent && !timeoutNotice && "is-urgent",
-              timeoutNotice && "is-timeout",
-            )}
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="action-popup-title"
-          >
-            <div className="action-popup-eyebrow">
-              {timeoutNotice ? "Timed out" : attentionUrgent ? "Hurry" : "Your turn"}
-            </div>
-            <div id="action-popup-title" className="action-popup-title">
-              {timeoutNotice
-                ? "Folded by system"
-                : canCheck
-                  ? "Check or bet"
-                  : `Call ${callAmount}`}
-            </div>
-            <p className="action-popup-copy">
-              {timeoutNotice
-                ? "Time ran out — you were folded."
-                : `${secondsLeft}s left to act`}
-            </p>
-            {!timeoutNotice && (
-              <div className="action-popup-timer">
-                <TurnTimer secondsLeft={secondsLeft} total={turnSeconds} />
-              </div>
-            )}
-            {!timeoutNotice && (
-              <div className="action-popup-actions">
-                <Button disabled={busy} variant="danger" onClick={() => void act("fold")}>
-                  Fold
-                </Button>
-                {canCheck ? (
-                  <Button disabled={busy} variant="ghost" onClick={() => void act("check")}>
-                    Check
-                  </Button>
-                ) : (
-                  <Button disabled={busy} variant="felt" onClick={() => void act("call")}>
-                    Call {callAmount}
-                  </Button>
-                )}
-                <Button disabled={busy} variant="ghost" onClick={() => void act("allin")}>
-                  All-in
-                </Button>
-                <div className="raise-row">
-                  <Input
-                    className="w-28"
-                    placeholder="Raise to"
-                    value={raiseTo}
-                    onChange={(e) => setRaiseTo(e.target.value)}
-                  />
-                  <Button
-                    disabled={busy || !raiseTo}
-                    onClick={() => void act("raise", Number(raiseTo))}
-                  >
-                    Raise
-                  </Button>
-                  {!attentionAcked && (
-                    <Button disabled={busy} variant="ghost" onClick={acknowledgeAttention}>
-                      Mute alerts
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+      {timeoutNotice && (
+        <div className={cn("action-toast", attentionLeaving && "is-leaving")} role="status">
+          <strong>Timed out</strong>
+          <span>Time ran out — you were folded.</span>
         </div>
       )}
 
@@ -1542,10 +1538,10 @@ export function PokerTable({
         <div className="felt-center-stack">
           <div className="dealer-anchor pointer-events-auto">
             <div ref={potAnchorRef} className="pot-fly-target" aria-hidden />
-            {(showPot || livePot > 0) && (
+            {(showPot || livePot > 0 || winFx.length > 0) && (
               <div
-                key={`pot-${livePot}-${state.handNumber}`}
-                className="pot-beside animate-pot"
+                key={`pot-${state.handNumber}`}
+                className={cn("pot-beside animate-pot", winFx.length > 0 && "is-collecting")}
               >
                 <div className="chip-stack chip-stack-sm">
                   {Array.from({
@@ -1742,6 +1738,32 @@ export function PokerTable({
               </div>
             ) : (
               <div className="h-5 w-5 rounded-full border border-[rgba(212,168,83,0.55)] bg-[radial-gradient(circle_at_35%_30%,#f0d59a,#b8892d_55%,#6a4a14)] shadow-md" />
+            )}
+          </div>
+        ))}
+
+        {/* Pot chips flying to winner seats */}
+        {winFx.map((fx) => (
+          <div
+            key={fx.id}
+            className="pot-to-winner"
+            style={
+              {
+                "--from-x": potTarget.x,
+                "--from-y": potTarget.y,
+                "--to-x": fx.toX,
+                "--to-y": fx.toY,
+                animationDelay: `${fx.delay}ms`,
+              } as React.CSSProperties
+            }
+          >
+            {fx.label ? (
+              <div className="rounded-full border border-[rgba(212,168,83,0.7)] bg-gradient-to-b from-[#5a4018] to-[#1a1208] px-3 py-1.5 text-center shadow-[0_10px_24px_rgba(0,0,0,0.5)]">
+                <div className="text-[9px] uppercase tracking-wider text-[var(--muted)]">Win</div>
+                <div className="text-sm font-bold text-[var(--gold-soft)]">{fx.label}</div>
+              </div>
+            ) : (
+              <div className="h-5 w-5 rounded-full border border-[rgba(212,168,83,0.65)] bg-[radial-gradient(circle_at_35%_30%,#f0d59a,#b8892d_55%,#6a4a14)] shadow-md" />
             )}
           </div>
         ))}
