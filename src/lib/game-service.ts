@@ -546,14 +546,7 @@ export async function tickRoomDebounced(roomId: string, minIntervalMs = 200): Pr
   const existing = tickInflight.get(roomId);
   if (existing) {
     try {
-      return await Promise.race([
-        existing,
-        new Promise<PokerTableState>((resolve) => {
-          setTimeout(() => {
-            void ensureGameState(roomId).then(resolve);
-          }, 800);
-        }),
-      ]);
+      return await existing;
     } catch {
       return ensureGameState(roomId);
     }

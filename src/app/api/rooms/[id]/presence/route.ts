@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/session";
-import { purgeStalePlayers, touchPresence } from "@/lib/table-roster";
+import { touchPresence } from "@/lib/table-roster";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -10,6 +10,6 @@ export async function POST(_req: Request, { params }: Params) {
   if ("error" in authResult) return authResult.error;
 
   await touchPresence(id, authResult.userId);
-  await purgeStalePlayers(id);
+  // Purge is throttled inside purgeStalePlayers / roster — keep presence light
   return NextResponse.json({ ok: true });
 }

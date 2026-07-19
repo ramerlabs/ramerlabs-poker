@@ -45,12 +45,11 @@ export async function GET(req: Request, { params }: Params) {
   // Only Ably echo should skip ticks — light polls still advance bots/timeouts
   const skipTick = new URL(req.url).searchParams.get("tick") === "0";
 
-  // Free idle seats (throttled) — presence is via /presence heartbeat + sit/actions
+  // Do NOT fire purge in parallel with this handler — it steals pool connections
+  // (P2024). Presence heartbeat already purges; only run here when not light.
   const purgeAge = Date.now() - (lastPurgeAt.get(id) ?? 0);
-  if (purgeAge >= PURGE_INTERVAL_MS) {
-    lastPurgeAt.set(id, Date.now());
-    void purgeStalePlayers(id).catch(() => {});
-  }
+  const shouldPurge = !light && purgeAge >= PURGE_INTERVAL_MS;
+  if (shouldPurge) lastPurgeAt.set(id, Date.now());
 
   const room = await prisma.room.findUnique({
     where: { id },
@@ -96,12 +95,18 @@ export async function GET(req: Request, { params }: Params) {
   }
 
   const game = await getPublicGameState(id, authResult.userId, { tick: !skipTick });
+  if (shouldPurge) {
+    await purgeStalePlayers(id).catch(() => {});
+  }
   const waitPosition =
     room.waitlist.findIndex((w) => w.userId === authResult.userId) + 1 || null;
   const isAdmin = authResult.role === "ADMIN";
-  const chats = await getRecentTableChats(id).catch(() => [] as Awaited<
-    ReturnType<typeof getRecentTableChats>
-  >);
+  // Light polls skip chat DB — Ably delivers bubbles; cuts ~1 query per 650ms poll
+  const chats = light
+    ? []
+    : await getRecentTableChats(id).catch(() => [] as Awaited<
+        ReturnType<typeof getRecentTableChats>
+      >);
 
   const meUser = light
     ? null

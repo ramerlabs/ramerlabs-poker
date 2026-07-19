@@ -4,7 +4,8 @@ const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefi
 
 /**
  * Vercel serverless: many isolates × default connection_limit=5 exhausts Neon.
- * Use 1 connection per isolate + Neon pooler (pgbouncer).
+ * Cap at 3 so a single request can run a few sequential/parallel queries without
+ * starving (limit=1 caused P2024 when purge/tick raced the main handler).
  */
 function datasourceUrl(): string | undefined {
   const raw = process.env.DATABASE_URL;
@@ -12,10 +13,10 @@ function datasourceUrl(): string | undefined {
   try {
     const u = new URL(raw);
     if (!u.searchParams.has("connection_limit")) {
-      u.searchParams.set("connection_limit", "1");
+      u.searchParams.set("connection_limit", "3");
     }
     if (!u.searchParams.has("pool_timeout")) {
-      u.searchParams.set("pool_timeout", "20");
+      u.searchParams.set("pool_timeout", "10");
     }
     if (u.hostname.includes("-pooler") && !u.searchParams.has("pgbouncer")) {
       u.searchParams.set("pgbouncer", "true");

@@ -741,20 +741,41 @@ export function PokerTable({
     let tickPoll: ReturnType<typeof setInterval> | null = null;
     let cancelled = false;
 
-    function startPolling() {
-      if (poll || tickPoll) return;
-      // Immediate fetch — don't wait 650ms on a frozen snapshot
-      void refreshRef.current({ tick: true });
-      poll = setInterval(() => {
-        void refreshRef.current({ tick: false });
-      }, 650);
-      tickPoll = setInterval(() => {
-        void refreshRef.current({ tick: true });
-      }, 1800);
+    function clearPolls() {
+      if (poll) {
+        clearInterval(poll);
+        poll = null;
+      }
+      if (tickPoll) {
+        clearInterval(tickPoll);
+        tickPoll = null;
+      }
     }
 
-    // Poll first — never block table updates on Ably token latency
-    startPolling();
+    /** Aggressive poll only when Ably is unavailable — otherwise it exhausts Neon. */
+    function startPolling(mode: "fallback" | "backup") {
+      clearPolls();
+      void refreshRef.current({ tick: true });
+      if (mode === "fallback") {
+        poll = setInterval(() => {
+          void refreshRef.current({ tick: false });
+        }, 1600);
+        tickPoll = setInterval(() => {
+          void refreshRef.current({ tick: true });
+        }, 3200);
+      } else {
+        // Ably owns live updates; slow safety net only
+        poll = setInterval(() => {
+          void refreshRef.current({ tick: false });
+        }, 5000);
+        tickPoll = setInterval(() => {
+          void refreshRef.current({ tick: true });
+        }, 8000);
+      }
+    }
+
+    // Poll immediately so the table never waits on Ably token latency
+    startPolling("fallback");
 
     async function setupAbly() {
       try {
@@ -777,17 +798,25 @@ export function PokerTable({
             const data = message.data as TableChatBubble;
             if (data?.id) ingestChatRef.current(data);
           });
+          client.connection.on("connected", () => {
+            if (!cancelled) startPolling("backup");
+          });
+          client.connection.on("disconnected", () => {
+            if (!cancelled) startPolling("fallback");
+          });
+          client.connection.on("failed", () => {
+            if (!cancelled) startPolling("fallback");
+          });
         }
       } catch {
-        // Polling already running
+        // Keep fallback polling
       }
     }
 
     void setupAbly();
     return () => {
       cancelled = true;
-      if (poll) clearInterval(poll);
-      if (tickPoll) clearInterval(tickPoll);
+      clearPolls();
       client?.close();
     };
   }, [roomId]);
