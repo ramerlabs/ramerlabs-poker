@@ -1,11 +1,18 @@
 import { PrismaClient } from "@prisma/client";
-import { PrismaNeonHttp } from "@prisma/adapter-neon";
+import { PrismaNeon } from "@prisma/adapter-neon";
+import { neonConfig } from "@neondatabase/serverless";
+import ws from "ws";
 
-const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined;
+};
+
+// Neon serverless WebSocket driver (supports $transaction — HTTP adapter does not).
+neonConfig.webSocketConstructor = ws;
 
 /**
- * Neon HTTP driver for Vercel serverless — avoids Prisma's TCP connection pool
- * (P2024) that was starving login while room polls held connections.
+ * Neon WebSocket adapter: avoids Prisma TCP pool exhaustion while still
+ * supporting interactive transactions required by the game table.
  */
 function createPrisma(): PrismaClient {
   const url = process.env.DATABASE_URL;
@@ -15,8 +22,13 @@ function createPrisma(): PrismaClient {
     });
   }
 
-  // HTTP driver (not TCP pool) — required 2nd arg is neon query options
-  const adapter = new PrismaNeonHttp(url, { arrayMode: false, fullResults: true });
+  const adapter = new PrismaNeon({
+    connectionString: url,
+    max: 3,
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 8_000,
+  });
+
   return new PrismaClient({
     adapter,
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
@@ -24,6 +36,4 @@ function createPrisma(): PrismaClient {
 }
 
 export const prisma = globalForPrisma.prisma ?? createPrisma();
-
-// Reuse across warm serverless isolates
 globalForPrisma.prisma = prisma;
