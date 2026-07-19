@@ -213,11 +213,11 @@ export async function unlockAudio() {
 
   await unlockPromise;
 
-  // If still suspended after await, force one more resume attempt
-  if (audio.state !== "running") {
+  // If still not running after await, force one more resume attempt
+  if (getCtx()?.state !== "running") {
     try {
       await audio.resume();
-      if (audio.state === "running" && !unlocked) {
+      if (getCtx()?.state === "running" && !unlocked) {
         unlocked = true;
         notifyUnlocked();
       }
