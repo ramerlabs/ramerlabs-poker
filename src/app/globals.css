@@ -1156,6 +1156,7 @@ a {
   width: max-content;
   max-width: min(260px, 55vw);
   min-width: 72px;
+  height: auto !important;
   padding: 0.4rem 0.75rem;
   border-radius: 12px;
   border: 1px solid rgba(212, 168, 83, 0.45);
@@ -1169,8 +1170,9 @@ a {
   pointer-events: none;
   animation: seat-chat-pop 5s ease both;
   white-space: normal;
-  overflow-wrap: break-word;
-  word-break: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  box-sizing: border-box;
 }
 
 .seat-chat-bubble.is-left {
@@ -1341,7 +1343,7 @@ a {
 }
 
 .seat-avatar-wrap .player-avatar,
-.seat-avatar-wrap > div {
+.seat-avatar-wrap > div:not(.seat-chat-bubble) {
   width: 44px !important;
   height: 44px !important;
   border: 2px solid rgba(255, 255, 255, 0.2) !important;
@@ -2360,7 +2362,7 @@ body.table-play-mode .app-mobile-nav {
 }
 
 .poker-shell.is-compact .seat-avatar-wrap .player-avatar,
-.poker-shell.is-compact .seat-avatar-wrap > div {
+.poker-shell.is-compact .seat-avatar-wrap > div:not(.seat-chat-bubble) {
   width: 34px !important;
   height: 34px !important;
 }
