@@ -354,6 +354,7 @@ export function PokerTable({
   const lastTickRef = useRef<number | null>(null);
   const lastTurnKey = useRef<string>("");
   const autoFolding = useRef(false);
+  const actingRef = useRef(false);
   const attentionLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hadActableTurn = useRef(false);
   const voluntaryActRef = useRef(false);
@@ -842,6 +843,7 @@ export function PokerTable({
       setError("Wait — cards are still being dealt");
       return;
     }
+    if (!fromSystem) actingRef.current = true;
     setBusy(true);
     setError(null);
     setHint(null);
@@ -856,6 +858,7 @@ export function PokerTable({
       if (!res.ok) {
         const msg = json.error || "Action failed";
         if (!fromSystem && /still dealing/i.test(msg)) {
+          actingRef.current = false;
           await new Promise((r) => setTimeout(r, 400));
           const retry = await fetch(`/api/rooms/${roomId}/action`, {
             method: "POST",
@@ -890,6 +893,7 @@ export function PokerTable({
     } finally {
       setBusy(false);
       autoFolding.current = false;
+      actingRef.current = false;
     }
   }
 
@@ -1021,8 +1025,11 @@ export function PokerTable({
 
   // Auto-fold when timer hits 0 on your turn — but give 1.5s grace so the
   // popup actually appears before the fold fires (latency can eat the clock).
+  // Also skip if we already sent an action (actingRef — the server response may
+  // be delayed, don't double-fold).
   useEffect(() => {
     if (!canActNow) return;
+    if (actingRef.current) return;
     // Grace window: we must have had the popup open for at least 1.5s before folding
     const timeSincePopup = attentionOpen ? Date.now() - popupOpenedAtRef.current : 0;
     if (secondsLeft > 0 || busy || autoFolding.current || timeSincePopup < 1500) return;
