@@ -40,6 +40,11 @@ enum CouponKind {
   CASH
 }
 
+enum ClubTransferKind {
+  ASSIGN
+  RETURN
+}
+
 enum TransactionStatus {
   PENDING
   COMPLETED
@@ -183,18 +188,20 @@ model ClubClient {
   @@index([clubId, createdAt])
 }
 
-/// Ledger when a club owner assigns credits from the club balance to a client.
+/// Ledger when credits move between club balance and a client.
 model ClubTransfer {
-  id          String   @id @default(cuid())
+  id          String           @id @default(cuid())
   clubId      String
   toUserId    String
   actorId     String
-  amount      Decimal  @db.Decimal(18, 2)
+  amount      Decimal          @db.Decimal(18, 2)
+  /// ASSIGN = club → client; RETURN = client → club.
+  kind        ClubTransferKind @default(ASSIGN)
   note        String?
-  createdAt   DateTime @default(now())
-  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  toUser      User     @relation("ClubTransferRecipient", fields: [toUserId], references: [id], onDelete: Cascade)
-  actor       User     @relation("ClubTransferActor", fields: [actorId], references: [id], onDelete: Cascade)
+  createdAt   DateTime         @default(now())
+  club        Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  toUser      User             @relation("ClubTransferRecipient", fields: [toUserId], references: [id], onDelete: Cascade)
+  actor       User             @relation("ClubTransferActor", fields: [actorId], references: [id], onDelete: Cascade)
 
   @@index([clubId, createdAt])
   @@index([toUserId, createdAt])

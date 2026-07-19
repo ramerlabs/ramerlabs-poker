@@ -37,6 +37,7 @@ export async function GET() {
     transfers: club.transfers.map((t) => ({
       id: t.id,
       amount: toNumber(t.amount),
+      kind: t.kind,
       note: t.note,
       createdAt: t.createdAt,
       toUser: t.toUser,

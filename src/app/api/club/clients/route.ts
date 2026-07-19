@@ -133,6 +133,7 @@ export async function POST(req: Request) {
             toUserId: user.id,
             actorId: authResult.userId,
             amount: new Prisma.Decimal(initial),
+            kind: "ASSIGN",
             note: "Initial credits on account create",
           },
         });

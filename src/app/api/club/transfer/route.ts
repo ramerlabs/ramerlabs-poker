@@ -70,6 +70,7 @@ export async function POST(req: Request) {
           toUserId: userId,
           actorId: authResult.userId,
           amount: new Prisma.Decimal(amount),
+          kind: "ASSIGN",
           note: note?.trim() || null,
         },
       });

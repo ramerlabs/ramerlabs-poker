@@ -34,20 +34,37 @@ type WalletData = {
   }[];
 };
 
+type ClubMembership = {
+  clubId: string;
+  clubName: string;
+  owner: { name: string | null; email: string };
+};
+
 export default function WalletPage() {
   const { update } = useSession();
   const [data, setData] = useState<WalletData | null>(null);
+  const [memberships, setMemberships] = useState<ClubMembership[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
   const [displayName, setDisplayName] = useState("");
+  const [returnBusy, setReturnBusy] = useState(false);
   const clearToast = useCallback(() => setToast(null), []);
 
   async function load() {
-    const res = await fetch("/api/wallet");
-    const json = await res.json();
+    const [walletRes, membershipRes] = await Promise.all([
+      fetch("/api/wallet"),
+      fetch("/api/club/return"),
+    ]);
+    const json = await walletRes.json();
     setData(json);
     if (json.wallet?.name) setDisplayName(json.wallet.name);
+    if (membershipRes.ok) {
+      const m = await membershipRes.json();
+      setMemberships(m.memberships ?? []);
+    } else {
+      setMemberships([]);
+    }
   }
 
   useEffect(() => {
@@ -146,6 +163,35 @@ export default function WalletPage() {
     await load();
   }
 
+  async function returnToClub(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setReturnBusy(true);
+    setError(null);
+    setMessage(null);
+    const form = new FormData(e.currentTarget);
+    const res = await fetch("/api/club/return", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clubId: String(form.get("clubId")),
+        amount: Number(form.get("amount")),
+        note: String(form.get("note") || "").trim() || undefined,
+      }),
+    });
+    const json = await res.json();
+    setReturnBusy(false);
+    if (!res.ok) {
+      const err = json.error || "Could not return credits";
+      setError(err);
+      setToast({ text: err, tone: "error" });
+      return;
+    }
+    setMessage(json.message);
+    setToast({ text: json.message, tone: "success" });
+    e.currentTarget.reset();
+    await load();
+  }
+
   if (!data) return <div className="text-[var(--muted)]">Loading wallet…</div>;
 
   const active = data.currency;
@@ -233,6 +279,56 @@ export default function WalletPage() {
           <p className="mt-3 text-sm text-[var(--crimson)]">{error}</p>
         )}
       </Panel>
+
+      {memberships.length > 0 && (
+        <Panel className="p-6">
+          <h2 className="text-xl font-semibold">Return credits to club</h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            Send credits from your wallet back to your club’s balance. You have{" "}
+            <span className="text-[var(--gold-soft)]">
+              {data.wallet.creditsBalance.toLocaleString()}
+            </span>{" "}
+            credits.
+          </p>
+          <form onSubmit={returnToClub} className="mt-4 space-y-3">
+            <div>
+              <Label>Club</Label>
+              <select
+                name="clubId"
+                required
+                className="w-full rounded-xl border border-[var(--line)] bg-[#0a1220] px-3.5 py-2.5 text-sm"
+                defaultValue={memberships[0]?.clubId}
+              >
+                {memberships.map((m) => (
+                  <option key={m.clubId} value={m.clubId}>
+                    {m.clubName} — owner {m.owner.email}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label>Amount</Label>
+                <Input
+                  name="amount"
+                  type="number"
+                  min={1}
+                  step="1"
+                  required
+                  max={data.wallet.creditsBalance}
+                />
+              </div>
+              <div>
+                <Label>Note (optional)</Label>
+                <Input name="note" maxLength={120} placeholder="Returning unused credits" />
+              </div>
+            </div>
+            <Button type="submit" disabled={returnBusy || data.wallet.creditsBalance < 1}>
+              {returnBusy ? "Sending…" : "Return credits to club"}
+            </Button>
+          </form>
+        </Panel>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel className="p-6">

@@ -28,6 +28,7 @@ type ClientRow = {
 type TransferRow = {
   id: string;
   amount: number;
+  kind: "ASSIGN" | "RETURN";
   note: string | null;
   createdAt: string;
   toUser: { id: string; name: string | null; email: string };
@@ -286,7 +287,7 @@ export default function ClubPage() {
       </Panel>
 
       <Panel className="p-6">
-        <h2 className="text-xl font-semibold">Recent assignments</h2>
+        <h2 className="text-xl font-semibold">Recent transfers</h2>
         <div className="mt-4 space-y-2">
           {transfers.length === 0 && (
             <p className="text-sm text-[var(--muted)]">No transfers yet.</p>
@@ -297,7 +298,17 @@ export default function ClubPage() {
               className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/5 bg-black/20 px-3 py-2 text-sm"
             >
               <span>
-                +{t.amount.toLocaleString()} → {t.toUser.name || t.toUser.email}
+                {t.kind === "RETURN" ? (
+                  <>
+                    <Badge tone="green">Return</Badge>{" "}
+                    {t.toUser.name || t.toUser.email} → club +{t.amount.toLocaleString()}
+                  </>
+                ) : (
+                  <>
+                    <Badge tone="gold">Assign</Badge> +{t.amount.toLocaleString()} →{" "}
+                    {t.toUser.name || t.toUser.email}
+                  </>
+                )}
                 {t.note ? ` · ${t.note}` : ""}
               </span>
               <span className="text-xs text-[var(--muted)]">
