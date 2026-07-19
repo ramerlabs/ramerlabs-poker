@@ -152,9 +152,44 @@ export function ClubCashoutPanel({ cashCurrency }: Props) {
         </div>
       </div>
 
-      <p className="mt-3 text-sm text-[var(--muted)]">
-        Owner: {selected.owner.name || selected.owner.email} ({selected.owner.email})
-      </p>
+      <div className="mt-4 rounded-xl border border-[rgba(212,168,83,0.35)] bg-[rgba(212,168,83,0.08)] px-4 py-3">
+        <div className="text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
+          Need a top-up?
+        </div>
+        <p className="mt-1.5 text-sm text-[var(--gold-soft)]">
+          Contact your club owner{" "}
+          <strong>{selected.owner.name || selected.owner.email}</strong>
+          {selected.owner.name ? (
+            <>
+              {" "}
+              at{" "}
+              <a
+                href={`mailto:${selected.owner.email}?subject=${encodeURIComponent(
+                  `Top-up request — ${selected.clubName}`,
+                )}`}
+                className="font-semibold underline hover:text-[var(--gold)]"
+              >
+                {selected.owner.email}
+              </a>
+            </>
+          ) : (
+            <>
+              {" "}
+              (
+              <a
+                href={`mailto:${selected.owner.email}?subject=${encodeURIComponent(
+                  `Top-up request — ${selected.clubName}`,
+                )}`}
+                className="font-semibold underline hover:text-[var(--gold)]"
+              >
+                {selected.owner.email}
+              </a>
+              )
+            </>
+          )}{" "}
+          to add free or real credits to your club wallet.
+        </p>
+      </div>
 
       <form onSubmit={cashOut} className="mt-5 space-y-4 border-t border-white/5 pt-5">
         <div>
