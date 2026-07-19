@@ -4,7 +4,7 @@ import { isBotUserId } from "@/lib/poker/bot";
 
 export const CHAT_MAX_LEN = 80;
 /** How long bubbles stay visible / returned from the API */
-export const CHAT_VISIBLE_MS = 5_000;
+export const CHAT_VISIBLE_MS = 12_000;
 const CHAT_COOLDOWN_MS = 1_800;
 const CHAT_PRUNE_MS = 60_000;
 

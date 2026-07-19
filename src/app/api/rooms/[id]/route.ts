@@ -101,12 +101,10 @@ export async function GET(req: Request, { params }: Params) {
   const waitPosition =
     room.waitlist.findIndex((w) => w.userId === authResult.userId) + 1 || null;
   const isAdmin = authResult.role === "ADMIN";
-  // Light polls skip chat DB — Ably delivers bubbles; cuts ~1 query per 650ms poll
-  const chats = light
-    ? []
-    : await getRecentTableChats(id).catch(() => [] as Awaited<
-        ReturnType<typeof getRecentTableChats>
-      >);
+  // Keep recent chats on light polls — Ably alone is not reliable enough for bubbles
+  const chats = await getRecentTableChats(id).catch(() => [] as Awaited<
+    ReturnType<typeof getRecentTableChats>
+  >);
 
   const meUser = light
     ? null
