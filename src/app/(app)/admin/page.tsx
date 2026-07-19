@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
-import { Toast, type ToastTone } from "@/components/toast";
+import { useToast } from "@/components/toast-provider";
 import { formatMoney } from "@/lib/utils";
 import {
   TICKET_CATEGORIES,
@@ -107,6 +107,7 @@ type AdminClub = {
 };
 
 export default function AdminPage() {
+  const toast = useToast();
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [rooms, setRooms] = useState<AdminRoom[]>([]);
   const [rake, setRake] = useState<RakeSettings | null>(null);
@@ -122,14 +123,11 @@ export default function AdminPage() {
   const [couponKind, setCouponKind] = useState<"CREDITS" | "CASH">("CREDITS");
   const [globalCurrency, setGlobalCurrency] = useState("USD");
   const [currencyOptions, setCurrencyOptions] = useState<{ code: string; name: string }[]>([]);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
   const [creating, setCreating] = useState(false);
   const [creatingCoupon, setCreatingCoupon] = useState(false);
   const [creatingClub, setCreatingClub] = useState(false);
   const [savingCurrency, setSavingCurrency] = useState(false);
-  const clearToast = useCallback(() => setToast(null), []);
 
   async function loadTickets(filters?: {
     status?: string;
@@ -205,8 +203,6 @@ export default function AdminPage() {
   async function createTable(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setCreating(true);
-    setMessage(null);
-    setError(null);
     const form = new FormData(e.currentTarget);
     const clubId = String(form.get("clubId") || "").trim();
     const res = await fetch("/api/admin/rooms", {
@@ -228,26 +224,22 @@ export default function AdminPage() {
     const json = await res.json();
     setCreating(false);
     if (!res.ok) {
-      setError(json.error || "Could not create table");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      toast.error(json.error || "Could not create table");
       return;
     }
-    setMessage(
+    toast.success(
       `Table “${json.room.name}” created successfully` +
         (json.room.club ? ` for ${json.room.club.name}` : "") +
         (json.room.botsSeeded ? ` with ${json.room.botsSeeded} bot(s)` : "") +
         (json.room.inviteCode ? ` · invite ${json.room.inviteCode}` : ""),
     );
     e.currentTarget.reset();
-    window.scrollTo({ top: 0, behavior: "smooth" });
     await load();
   }
 
   async function createClub(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setCreatingClub(true);
-    setMessage(null);
-    setError(null);
     const form = new FormData(e.currentTarget);
     const res = await fetch("/api/admin/clubs", {
       method: "POST",
@@ -261,13 +253,11 @@ export default function AdminPage() {
     const json = await res.json();
     setCreatingClub(false);
     if (!res.ok) {
-      setError(json.error || "Could not create club");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      toast.error(json.error || "Could not create club");
       return;
     }
-    setMessage(json.message);
+    toast.success(json.message);
     e.currentTarget.reset();
-    window.scrollTo({ top: 0, behavior: "smooth" });
     await load();
   }
 
@@ -281,12 +271,10 @@ export default function AdminPage() {
     });
     const json = await res.json();
     if (!res.ok) {
-      setError(json.error || "Could not reassign owner");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      toast.error(json.error || "Could not reassign owner");
       return;
     }
-    setMessage(json.message);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    toast.success(json.message);
     await load();
   }
 
@@ -295,8 +283,7 @@ export default function AdminPage() {
     if (raw == null) return;
     const addBalance = Number(raw);
     if (!Number.isFinite(addBalance) || addBalance <= 0) {
-      setError("Enter a positive credit amount");
-      setToast({ text: "Enter a positive credit amount", tone: "error" });
+      toast.error("Enter a positive credit amount");
       return;
     }
     const res = await fetch("/api/admin/clubs", {
@@ -306,12 +293,10 @@ export default function AdminPage() {
     });
     const json = await res.json();
     if (!res.ok) {
-      setError(json.error || "Could not fund club");
-      setToast({ text: json.error || "Could not fund club", tone: "error" });
+      toast.error(json.error || "Could not fund club");
       return;
     }
-    setMessage(json.message);
-    setToast({ text: json.message, tone: "success" });
+    toast.success(json.message);
     await load();
   }
 
@@ -322,8 +307,7 @@ export default function AdminPage() {
       body: JSON.stringify({ id, active: !active }),
     });
     if (res.ok) {
-      setMessage(`Club ${!active ? "activated" : "deactivated"}`);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      toast.success(`Club ${!active ? "activated" : "deactivated"}`);
       await load();
     }
   }
@@ -331,8 +315,6 @@ export default function AdminPage() {
   async function saveGlobalCurrency(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSavingCurrency(true);
-    setMessage(null);
-    setError(null);
     const form = new FormData(e.currentTarget);
     const res = await fetch("/api/admin/currency", {
       method: "PUT",
@@ -342,13 +324,11 @@ export default function AdminPage() {
     const json = await res.json();
     setSavingCurrency(false);
     if (!res.ok) {
-      setError(json.error || "Could not set platform currency");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      toast.error(json.error || "Could not set platform currency");
       return;
     }
     setGlobalCurrency(json.globalCurrency);
-    setMessage(json.message);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    toast.success(json.message);
     await load();
   }
 
@@ -371,7 +351,7 @@ export default function AdminPage() {
     if (raw == null) return;
     const botSkillPercent = Number(raw);
     if (!Number.isFinite(botSkillPercent) || botSkillPercent < 0 || botSkillPercent > 100) {
-      setError("Bot accuracy must be 0–100");
+      toast.error("Bot accuracy must be 0–100");
       return;
     }
     const res = await fetch("/api/admin/rooms", {
@@ -380,7 +360,7 @@ export default function AdminPage() {
       body: JSON.stringify({ id, botSkillPercent }),
     });
     if (res.ok) {
-      setMessage(`Bot accuracy set to ${botSkillPercent}%`);
+      toast.success(`Bot accuracy set to ${botSkillPercent}%`);
       await load();
     }
   }
@@ -392,7 +372,7 @@ export default function AdminPage() {
       body: JSON.stringify({ id, status: "CLOSED" }),
     });
     if (res.ok) {
-      setMessage("Table closed");
+      toast.success("Table closed");
       await load();
     }
   }
@@ -404,15 +384,13 @@ export default function AdminPage() {
       body: JSON.stringify({ id, chatEnabled: !enabled }),
     });
     if (res.ok) {
-      setMessage(`Table chat ${!enabled ? "enabled" : "disabled"}`);
+      toast.success(`Table chat ${!enabled ? "enabled" : "disabled"}`);
       await load();
     }
   }
 
   async function saveCurrency(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setMessage(null);
-    setError(null);
     const form = new FormData(e.currentTarget);
     const res = await fetch("/api/admin/currencies", {
       method: "PUT",
@@ -429,10 +407,10 @@ export default function AdminPage() {
     });
     const json = await res.json();
     if (!res.ok) {
-      setError(json.error || "Update failed");
+      toast.error(json.error || "Update failed");
       return;
     }
-    setMessage(`Saved ${json.currency.code}`);
+    toast.success(`Saved ${json.currency.code}`);
     await load();
   }
 
@@ -447,8 +425,6 @@ export default function AdminPage() {
 
   async function saveRake(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setMessage(null);
-    setError(null);
     const form = new FormData(e.currentTarget);
     const res = await fetch("/api/admin/rake", {
       method: "PUT",
@@ -460,18 +436,16 @@ export default function AdminPage() {
     });
     const json = await res.json();
     if (!res.ok) {
-      setError(json.error || "Rake update failed");
+      toast.error(json.error || "Rake update failed");
       return;
     }
     setRake(json.settings);
-    setMessage("Rake settings saved — applies to new REAL rooms");
+    toast.success("Rake settings saved — applies to new REAL rooms");
   }
 
   async function createCoupon(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setCreatingCoupon(true);
-    setMessage(null);
-    setError(null);
     const form = new FormData(e.currentTarget);
     const customCode = String(form.get("code") || "").trim();
     const expiresRaw = String(form.get("expiresAt") || "").trim();
@@ -490,14 +464,10 @@ export default function AdminPage() {
     const json = await res.json();
     setCreatingCoupon(false);
     if (!res.ok) {
-      const err = json.error || "Could not create coupon";
-      setError(err);
-      setToast({ text: err, tone: "error" });
+      toast.error(json.error || "Could not create coupon");
       return;
     }
-    const ok = `Coupon ${json.coupon.code} created successfully`;
-    setMessage(ok);
-    setToast({ text: ok, tone: "success" });
+    toast.success(`Coupon ${json.coupon.code} created successfully`);
     e.currentTarget.reset();
     setCouponKind("CREDITS");
     await load();
@@ -510,7 +480,7 @@ export default function AdminPage() {
       body: JSON.stringify({ id, active: !active }),
     });
     if (res.ok) {
-      setMessage(`Coupon ${!active ? "activated" : "deactivated"}`);
+      toast.success(`Coupon ${!active ? "activated" : "deactivated"}`);
       await load();
     }
   }
@@ -518,16 +488,14 @@ export default function AdminPage() {
   async function copyCouponCode(code: string) {
     try {
       await navigator.clipboard.writeText(code);
-      setMessage(`Copied ${code}`);
+      toast.success(`Copied ${code}`);
     } catch {
-      setMessage(code);
+      toast.success(code);
     }
   }
 
   async function saveAbly(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setError(null);
-    setMessage(null);
     const form = new FormData(e.currentTarget);
     const enabled = form.get("ablyEnabled") === "on";
     const clearKey = form.get("clearApiKey") === "on";
@@ -542,12 +510,12 @@ export default function AdminPage() {
     });
     const json = await res.json();
     if (!res.ok) {
-      setError(json.error || "Ably update failed");
+      toast.error(json.error || "Ably update failed");
       return;
     }
     setAbly(json.settings);
     setAblyKeyInput("");
-    setMessage(
+    toast.success(
       json.settings.active
         ? "Ably realtime is ON"
         : "Ably is OFF — tables will use polling",
@@ -558,12 +526,6 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6 animate-fade-up">
-      <Toast
-        message={toast?.text ?? null}
-        tone={toast?.tone}
-        onClose={clearToast}
-      />
-
       <div>
         <h1 className="text-4xl font-semibold text-[var(--gold-soft)]">Admin</h1>
         <p className="mt-2 text-[var(--muted)]">
@@ -571,18 +533,7 @@ export default function AdminPage() {
         </p>
       </div>
 
-      {(message || error) && (
-        <div
-          role="status"
-          className={`sticky top-2 z-20 rounded-xl px-4 py-3 text-sm shadow-lg ${
-            error
-              ? "border border-[rgba(179,58,74,0.4)] bg-[rgba(179,58,74,0.18)]"
-              : "border border-[rgba(62,207,142,0.45)] bg-[rgba(62,207,142,0.14)]"
-          }`}
-        >
-          {error || message}
-        </div>
-      )}
+      {error && <p className="text-sm text-[var(--crimson)]">{error}</p>}
 
       <Panel className="p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">

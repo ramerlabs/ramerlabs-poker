@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Badge, Button, Label, Panel } from "@/components/ui";
+import { useToast } from "@/components/toast-provider";
 import {
   TICKET_PRIORITIES,
   TICKET_STATUSES,
@@ -37,12 +38,12 @@ type TicketDetail = {
 };
 
 export default function SupportTicketDetailPage() {
+  const toast = useToast();
   const params = useParams<{ id: string }>();
   const { data: session } = useSession();
   const [ticket, setTicket] = useState<TicketDetail | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<TicketStatus>("OPEN");
   const [priority, setPriority] = useState<TicketPriority>("NORMAL");
@@ -70,8 +71,6 @@ export default function SupportTicketDetailPage() {
   async function sendReply(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
-    setError(null);
-    setMessage(null);
     const form = new FormData(e.currentTarget);
     const res = await fetch(`/api/support/tickets/${params.id}/messages`, {
       method: "POST",
@@ -81,19 +80,17 @@ export default function SupportTicketDetailPage() {
     const json = await res.json();
     setBusy(false);
     if (!res.ok) {
-      setError(json.error || "Could not send reply");
+      toast.error(json.error || "Could not send reply");
       return;
     }
     e.currentTarget.reset();
-    setMessage("Reply sent");
+    toast.success("Reply sent");
     await load();
   }
 
   async function saveAdminMeta(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
-    setError(null);
-    setMessage(null);
     const res = await fetch(`/api/support/tickets/${params.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -102,16 +99,15 @@ export default function SupportTicketDetailPage() {
     const json = await res.json();
     setBusy(false);
     if (!res.ok) {
-      setError(json.error || "Could not update ticket");
+      toast.error(json.error || "Could not update ticket");
       return;
     }
-    setMessage("Ticket updated");
+    toast.success("Ticket updated");
     await load();
   }
 
   async function closeTicket() {
     setBusy(true);
-    setError(null);
     const res = await fetch(`/api/support/tickets/${params.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -120,10 +116,10 @@ export default function SupportTicketDetailPage() {
     const json = await res.json();
     setBusy(false);
     if (!res.ok) {
-      setError(json.error || "Could not close ticket");
+      toast.error(json.error || "Could not close ticket");
       return;
     }
-    setMessage("Ticket closed");
+    toast.success("Ticket closed");
     await load();
   }
 
@@ -171,17 +167,6 @@ export default function SupportTicketDetailPage() {
           </Badge>
         </div>
       </div>
-
-      {error && (
-        <div className="rounded-xl border border-[rgba(179,58,74,0.4)] bg-[rgba(179,58,74,0.12)] px-3 py-2 text-sm">
-          {error}
-        </div>
-      )}
-      {message && (
-        <div className="rounded-xl border border-[rgba(62,207,142,0.35)] bg-[rgba(62,207,142,0.08)] px-3 py-2 text-sm">
-          {message}
-        </div>
-      )}
 
       {isAdmin && (
         <Panel className="p-4 md:p-5">

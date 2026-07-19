@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
-import { Toast, type ToastTone } from "@/components/toast";
+import { useToast } from "@/components/toast-provider";
 
 type Room = {
   id: string;
@@ -27,16 +27,13 @@ type Room = {
 type MyClub = { id: string; name: string; active: boolean };
 
 export default function RoomsPage() {
+  const toast = useToast();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [myClub, setMyClub] = useState<MyClub | null>(null);
   const [canCreate, setCanCreate] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [joining, setJoining] = useState(false);
-  const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
-  const clearToast = useCallback(() => setToast(null), []);
 
   async function load() {
     const res = await fetch("/api/rooms");
@@ -54,7 +51,6 @@ export default function RoomsPage() {
   async function joinByInvite(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setJoining(true);
-    setError(null);
     const form = new FormData(e.currentTarget);
     const inviteCode = String(form.get("inviteCode") || "").trim();
     const res = await fetch("/api/rooms/by-invite", {
@@ -65,12 +61,10 @@ export default function RoomsPage() {
     const json = await res.json();
     setJoining(false);
     if (!res.ok) {
-      const err = json.error || "Could not open table";
-      setError(err);
-      setToast({ text: err, tone: "error" });
+      toast.error(json.error || "Could not open table");
       return;
     }
-    setToast({ text: json.message || "Opening table…", tone: "success" });
+    toast.success(json.message || "Opening table…");
     e.currentTarget.reset();
     if (json.path) {
       window.location.href = json.path;
@@ -80,8 +74,6 @@ export default function RoomsPage() {
   async function onCreate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setCreating(true);
-    setError(null);
-    setMessage(null);
     const form = new FormData(e.currentTarget);
     const payload = {
       name: String(form.get("name")),
@@ -101,10 +93,10 @@ export default function RoomsPage() {
     const json = await res.json();
     setCreating(false);
     if (!res.ok) {
-      setError(json.error || "Could not create room");
+      toast.error(json.error || "Could not create room");
       return;
     }
-    setMessage(
+    toast.success(
       `Table “${json.room.name}” created` +
         (json.room.club ? ` for ${json.room.club.name}` : isAdmin ? " (admin)" : ""),
     );
@@ -115,8 +107,6 @@ export default function RoomsPage() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr] animate-fade-up">
-      <Toast message={toast?.text ?? null} tone={toast?.tone} onClose={clearToast} />
-
       <div className="space-y-4">
         <div>
           <h1 className="text-4xl font-semibold text-[var(--gold-soft)]">Rooms</h1>
@@ -210,18 +200,6 @@ export default function RoomsPage() {
             You are not a club owner. A platform admin must create a club and assign you as owner
             before you can create tables.
           </p>
-        )}
-
-        {(message || error) && (
-          <div
-            className={`mt-3 rounded-xl px-3 py-2 text-sm ${
-              error
-                ? "border border-[rgba(179,58,74,0.4)] bg-[rgba(179,58,74,0.12)]"
-                : "border border-[rgba(62,207,142,0.35)] bg-[rgba(62,207,142,0.08)]"
-            }`}
-          >
-            {error || message}
-          </div>
         )}
 
         {canCreate ? (

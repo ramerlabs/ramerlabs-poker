@@ -3,21 +3,19 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Button, Input, Label, Panel } from "@/components/ui";
+import { useToast } from "@/components/toast-provider";
 
 type TwoFaStatus = { enabled: boolean; email?: string };
 
 export default function SettingsPage() {
+  const toast = useToast();
   const { data: session, update } = useSession();
   const [name, setName] = useState(session?.user?.name ?? "");
-  const [nameMsg, setNameMsg] = useState<string | null>(null);
-  const [nameErr, setNameErr] = useState<string | null>(null);
   const [nameBusy, setNameBusy] = useState(false);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [pwMsg, setPwMsg] = useState<string | null>(null);
-  const [pwErr, setPwErr] = useState<string | null>(null);
   const [pwBusy, setPwBusy] = useState(false);
 
   const [twoFa, setTwoFa] = useState<TwoFaStatus | null>(null);
@@ -26,8 +24,6 @@ export default function SettingsPage() {
   const [enableCode, setEnableCode] = useState("");
   const [disablePassword, setDisablePassword] = useState("");
   const [disableCode, setDisableCode] = useState("");
-  const [twoFaMsg, setTwoFaMsg] = useState<string | null>(null);
-  const [twoFaErr, setTwoFaErr] = useState<string | null>(null);
   const [twoFaBusy, setTwoFaBusy] = useState(false);
 
   const refreshTwoFa = useCallback(async () => {
@@ -48,8 +44,6 @@ export default function SettingsPage() {
   async function saveName(e: FormEvent) {
     e.preventDefault();
     setNameBusy(true);
-    setNameMsg(null);
-    setNameErr(null);
     try {
       const res = await fetch("/api/profile", {
         method: "PATCH",
@@ -58,13 +52,13 @@ export default function SettingsPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setNameErr(data.error || "Could not update name");
+        toast.error(data.error || "Could not update name");
         return;
       }
       await update({ name: data.user.name });
-      setNameMsg("Display name updated.");
+      toast.success("Display name updated.");
     } catch {
-      setNameErr("Could not update name");
+      toast.error("Could not update name");
     } finally {
       setNameBusy(false);
     }
@@ -73,10 +67,8 @@ export default function SettingsPage() {
   async function changePassword(e: FormEvent) {
     e.preventDefault();
     setPwBusy(true);
-    setPwMsg(null);
-    setPwErr(null);
     if (newPassword !== confirmPassword) {
-      setPwErr("New passwords do not match");
+      toast.error("New passwords do not match");
       setPwBusy(false);
       return;
     }
@@ -88,15 +80,15 @@ export default function SettingsPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setPwErr(data.error || "Could not change password");
+        toast.error(data.error || "Could not change password");
         return;
       }
-      setPwMsg(data.message || "Password updated.");
+      toast.success(data.message || "Password updated.");
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
     } catch {
-      setPwErr("Could not change password");
+      toast.error("Could not change password");
     } finally {
       setPwBusy(false);
     }
@@ -104,22 +96,20 @@ export default function SettingsPage() {
 
   async function startTwoFa() {
     setTwoFaBusy(true);
-    setTwoFaErr(null);
-    setTwoFaMsg(null);
     setSetupQr(null);
     setSetupSecret(null);
     try {
       const res = await fetch("/api/profile/2fa/setup", { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        setTwoFaErr(data.error || "Could not start 2FA setup");
+        toast.error(data.error || "Could not start 2FA setup");
         return;
       }
       setSetupQr(data.qrDataUrl);
       setSetupSecret(data.secret);
-      setTwoFaMsg(data.message);
+      toast.success(data.message || "Scan the QR code to continue.");
     } catch {
-      setTwoFaErr("Could not start 2FA setup");
+      toast.error("Could not start 2FA setup");
     } finally {
       setTwoFaBusy(false);
     }
@@ -128,8 +118,6 @@ export default function SettingsPage() {
   async function confirmTwoFa(e: FormEvent) {
     e.preventDefault();
     setTwoFaBusy(true);
-    setTwoFaErr(null);
-    setTwoFaMsg(null);
     try {
       const res = await fetch("/api/profile/2fa/enable", {
         method: "POST",
@@ -138,16 +126,16 @@ export default function SettingsPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setTwoFaErr(data.error || "Invalid code");
+        toast.error(data.error || "Invalid code");
         return;
       }
-      setTwoFaMsg(data.message);
+      toast.success(data.message || "2FA enabled.");
       setSetupQr(null);
       setSetupSecret(null);
       setEnableCode("");
       await refreshTwoFa();
     } catch {
-      setTwoFaErr("Could not enable 2FA");
+      toast.error("Could not enable 2FA");
     } finally {
       setTwoFaBusy(false);
     }
@@ -156,8 +144,6 @@ export default function SettingsPage() {
   async function disableTwoFa(e: FormEvent) {
     e.preventDefault();
     setTwoFaBusy(true);
-    setTwoFaErr(null);
-    setTwoFaMsg(null);
     try {
       const res = await fetch("/api/profile/2fa/disable", {
         method: "POST",
@@ -166,15 +152,15 @@ export default function SettingsPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setTwoFaErr(data.error || "Could not disable 2FA");
+        toast.error(data.error || "Could not disable 2FA");
         return;
       }
-      setTwoFaMsg(data.message);
+      toast.success(data.message || "2FA disabled.");
       setDisablePassword("");
       setDisableCode("");
       await refreshTwoFa();
     } catch {
-      setTwoFaErr("Could not disable 2FA");
+      toast.error("Could not disable 2FA");
     } finally {
       setTwoFaBusy(false);
     }
@@ -206,8 +192,6 @@ export default function SettingsPage() {
               required
             />
           </div>
-          {nameErr && <p className="text-sm text-[var(--crimson)]">{nameErr}</p>}
-          {nameMsg && <p className="text-sm text-[var(--success)]">{nameMsg}</p>}
           <Button type="submit" disabled={nameBusy}>
             {nameBusy ? "Saving…" : "Save name"}
           </Button>
@@ -256,8 +240,6 @@ export default function SettingsPage() {
               autoComplete="new-password"
             />
           </div>
-          {pwErr && <p className="text-sm text-[var(--crimson)]">{pwErr}</p>}
-          {pwMsg && <p className="text-sm text-[var(--success)]">{pwMsg}</p>}
           <Button type="submit" disabled={pwBusy}>
             {pwBusy ? "Updating…" : "Update password"}
           </Button>
@@ -352,9 +334,6 @@ export default function SettingsPage() {
             </Button>
           </form>
         )}
-
-        {twoFaErr && <p className="mt-3 text-sm text-[var(--crimson)]">{twoFaErr}</p>}
-        {twoFaMsg && <p className="mt-3 text-sm text-[var(--success)]">{twoFaMsg}</p>}
       </Panel>
     </div>
   );

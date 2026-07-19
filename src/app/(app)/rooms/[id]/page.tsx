@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, Minimize2, Spade, X } from "lucide-react";
 import { PokerTable } from "@/components/poker-table";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
+import { useToast } from "@/components/toast-provider";
 import type { PublicTableState } from "@/lib/poker/types";
 import { setMuted, unlockAudio } from "@/lib/sounds";
 import { readJson } from "@/lib/utils";
@@ -60,11 +61,11 @@ type RoomPayload = {
 };
 
 export default function RoomDetailPage() {
+  const toast = useToast();
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [data, setData] = useState<RoomPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [hint, setHint] = useState<string | null>(null);
   const [inviteCode, setInviteCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -227,8 +228,6 @@ export default function RoomDetailPage() {
   async function join(e?: FormEvent) {
     e?.preventDefault();
     setBusy(true);
-    setError(null);
-    setHint(null);
     try {
       const res = await fetch(`/api/rooms/${params.id}/join`, {
         method: "POST",
@@ -242,20 +241,20 @@ export default function RoomDetailPage() {
         position?: number;
       }>(res);
       if (!res.ok) {
-        setError(json.error || "Join failed");
+        toast.error(json.error || "Join failed");
         return;
       }
       if (json.seated) {
-        setHint("You are seated at the table.");
+        toast.success("You are seated at the table.");
       } else {
-        setHint(
+        toast.success(
           json.message ||
             `You are on the waitlist (#${json.position ?? "?"}). Click an Open seat to sit.`,
         );
       }
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Join failed");
+      toast.error(err instanceof Error ? err.message : "Join failed");
     } finally {
       setBusy(false);
     }
@@ -266,32 +265,31 @@ export default function RoomDetailPage() {
     connectedRef.current = false;
     await fetch(`/api/rooms/${params.id}/waitlist`, { method: "DELETE" });
     setBusy(false);
-    setHint("Left the waitlist.");
+    toast.success("Left the waitlist.");
     await load();
   }
 
   async function leaveTable() {
     setBusy(true);
-    setError(null);
     try {
       const res = await fetch(`/api/rooms/${params.id}/leave`, { method: "POST" });
       const json = await readJson<{ error?: string; mode?: string }>(res);
       if (!res.ok) {
-        setError(json.error || "Could not leave");
+        toast.error(json.error || "Could not leave");
         return;
       }
       if (json.mode === "pending_leave") {
-        setHint("Leaving after this hand — you are folded for now.");
+        toast.success("Leaving after this hand — you are folded for now.");
       } else {
         connectedRef.current = false;
-        setHint("Left the table. Stack returned to your wallet.");
+        toast.success("Left the table. Stack returned to your wallet.");
         if (isMobile) closeTable();
         // Navigate back to lobby so the table is fully cleared
         router.push("/rooms");
       }
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not leave");
+      toast.error(err instanceof Error ? err.message : "Could not leave");
     } finally {
       setBusy(false);
     }
@@ -299,18 +297,17 @@ export default function RoomDetailPage() {
 
   async function standUp() {
     setBusy(true);
-    setError(null);
     try {
       const res = await fetch(`/api/rooms/${params.id}/standup`, { method: "POST" });
       const json = await readJson<{ error?: string; ok?: boolean }>(res);
       if (!res.ok) {
-        setError(json.error || "Could not stand up");
+        toast.error(json.error || "Could not stand up");
         return;
       }
-      setHint("You stood up from your seat and are back on the waitlist.");
+      toast.success("You stood up from your seat and are back on the waitlist.");
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not stand up");
+      toast.error(err instanceof Error ? err.message : "Could not stand up");
     } finally {
       setBusy(false);
     }
@@ -380,7 +377,7 @@ export default function RoomDetailPage() {
       chatEnabled={data.room.chatEnabled}
       onPlayersChanged={() => void load()}
       onSitResult={(msg) => {
-        setHint(msg);
+        toast.success(msg);
         if (isMobile && !tableOpen) void openTable();
       }}
     />
@@ -481,17 +478,6 @@ export default function RoomDetailPage() {
             return n ? ` as ${n}` : "";
           })()}
           . Look for the green <strong>You</strong> badge on the table.
-        </div>
-      )}
-
-      {error && (
-        <div className="rounded-xl border border-[rgba(179,58,74,0.4)] bg-[rgba(179,58,74,0.12)] px-3 py-2 text-sm">
-          {error}
-        </div>
-      )}
-      {hint && (
-        <div className="rounded-xl border border-[rgba(62,207,142,0.35)] bg-[rgba(62,207,142,0.08)] px-3 py-2 text-sm">
-          {hint}
         </div>
       )}
 

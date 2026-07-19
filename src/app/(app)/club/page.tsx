@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
-import { Toast, type ToastTone } from "@/components/toast";
+import { useToast } from "@/components/toast-provider";
 
 type ClubSummary = {
   id: string;
@@ -54,6 +54,7 @@ type ClubRoom = {
 };
 
 export default function ClubPage() {
+  const toast = useToast();
   const [club, setClub] = useState<ClubSummary | null>(null);
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [transfers, setTransfers] = useState<TransferRow[]>([]);
@@ -62,9 +63,7 @@ export default function ClubPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
   const [assignUserId, setAssignUserId] = useState("");
-  const clearToast = useCallback(() => setToast(null), []);
 
   async function load() {
     setLoading(true);
@@ -125,10 +124,10 @@ export default function ClubPage() {
     const json = await res.json();
     setBusy(false);
     if (!res.ok) {
-      setToast({ text: json.error || "Could not create client", tone: "error" });
+      toast.error(json.error || "Could not create client");
       return;
     }
-    setToast({ text: json.message, tone: "success" });
+    toast.success(json.message);
     e.currentTarget.reset();
     await load();
   }
@@ -149,10 +148,10 @@ export default function ClubPage() {
     const json = await res.json();
     setBusy(false);
     if (!res.ok) {
-      setToast({ text: json.error || "Could not assign credits", tone: "error" });
+      toast.error(json.error || "Could not assign credits");
       return;
     }
-    setToast({ text: json.message, tone: "success" });
+    toast.success(json.message);
     e.currentTarget.reset();
     await load();
   }
@@ -180,10 +179,10 @@ export default function ClubPage() {
     const json = await res.json();
     setBusy(false);
     if (!res.ok) {
-      setToast({ text: json.error || "Could not update table", tone: "error" });
+      toast.error(json.error || "Could not update table");
       return;
     }
-    setToast({ text: json.message || "Table updated", tone: "success" });
+    toast.success(json.message || "Table updated");
     setEditingId(null);
     await load();
   }
@@ -201,10 +200,10 @@ export default function ClubPage() {
     const json = await res.json();
     setBusy(false);
     if (!res.ok) {
-      setToast({ text: json.error || "Could not close table", tone: "error" });
+      toast.error(json.error || "Could not close table");
       return;
     }
-    setToast({ text: `Table “${name}” closed`, tone: "success" });
+    toast.success(`Table “${name}” closed`);
     setEditingId(null);
     await load();
   }
@@ -219,10 +218,10 @@ export default function ClubPage() {
     const json = await res.json();
     setBusy(false);
     if (!res.ok) {
-      setToast({ text: json.error || "Could not reopen table", tone: "error" });
+      toast.error(json.error || "Could not reopen table");
       return;
     }
-    setToast({ text: "Table reopened", tone: "success" });
+    toast.success("Table reopened");
     await load();
   }
 
@@ -243,8 +242,6 @@ export default function ClubPage() {
 
   return (
     <div className="space-y-6 animate-fade-up">
-      <Toast message={toast?.text ?? null} tone={toast?.tone} onClose={clearToast} />
-
       <div>
         <h1 className="text-4xl font-semibold text-[var(--gold-soft)]">{club.name}</h1>
         <p className="mt-2 text-[var(--muted)]">

@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Button, Input, Label, Panel } from "@/components/ui";
+import { useToast } from "@/components/toast-provider";
 
 type LicenseStatus = {
   valid?: boolean;
@@ -12,10 +13,10 @@ type LicenseStatus = {
 };
 
 export function LicenseGate({ children }: { children: React.ReactNode }) {
+  const toast = useToast();
   const [status, setStatus] = useState<LicenseStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [key, setKey] = useState("");
 
   const refresh = useCallback(async () => {
@@ -55,7 +56,6 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
   async function onActivate(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
-    setError(null);
     try {
       const res = await fetch("/api/license/activate", {
         method: "POST",
@@ -68,16 +68,17 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
         buy_url?: string;
       };
       if (!res.ok || !data.success) {
-        setError(data.message || "Invalid license key. Buy a license at ramerlabs.com.");
+        toast.error(data.message || "Invalid license key. Buy a license at ramerlabs.com.");
         if (data.buy_url) {
           setStatus((prev) => ({ ...prev, buy_url: data.buy_url }));
         }
         return;
       }
+      toast.success(data.message || "License activated.");
       setKey("");
       await refresh();
     } catch {
-      setError("Could not activate license. Buy a license at ramerlabs.com.");
+      toast.error("Could not activate license. Buy a license at ramerlabs.com.");
     } finally {
       setBusy(false);
     }
@@ -85,13 +86,13 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
 
   async function onReplace() {
     setBusy(true);
-    setError(null);
     try {
       await fetch("/api/license/deactivate", { method: "POST" });
       setKey("");
+      toast.success("License cleared — enter a new key.");
       await refresh();
     } catch {
-      setError("Could not replace license.");
+      toast.error("Could not replace license.");
     } finally {
       setBusy(false);
     }
@@ -163,7 +164,6 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
               autoFocus
             />
           </div>
-          {error && <p className="text-sm text-[var(--crimson)]">{error}</p>}
           <Button type="submit" disabled={busy || !key.trim()} className="w-full">
             {busy ? "Activating…" : "Activate"}
           </Button>

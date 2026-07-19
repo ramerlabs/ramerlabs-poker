@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
+import { useToast } from "@/components/toast-provider";
 import {
   TICKET_CATEGORIES,
   TICKET_PRIORITIES,
@@ -25,9 +26,9 @@ type TicketRow = {
 };
 
 export default function SupportPage() {
+  const toast = useToast();
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function load() {
@@ -37,6 +38,7 @@ export default function SupportPage() {
       setError(json.error || "Could not load tickets");
       return;
     }
+    setError(null);
     setTickets(json.tickets ?? []);
   }
 
@@ -47,8 +49,6 @@ export default function SupportPage() {
   async function createTicket(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
-    setError(null);
-    setMessage(null);
     const form = new FormData(e.currentTarget);
     const res = await fetch("/api/support/tickets", {
       method: "POST",
@@ -63,10 +63,10 @@ export default function SupportPage() {
     const json = await res.json();
     setBusy(false);
     if (!res.ok) {
-      setError(json.error || "Could not create ticket");
+      toast.error(json.error || "Could not create ticket");
       return;
     }
-    setMessage("Ticket submitted — we’ll get back to you.");
+    toast.success("Ticket submitted — we’ll get back to you.");
     e.currentTarget.reset();
     await load();
   }
@@ -88,16 +88,7 @@ export default function SupportPage() {
         </p>
       </div>
 
-      {error && (
-        <div className="rounded-xl border border-[rgba(179,58,74,0.4)] bg-[rgba(179,58,74,0.12)] px-3 py-2 text-sm">
-          {error}
-        </div>
-      )}
-      {message && (
-        <div className="rounded-xl border border-[rgba(62,207,142,0.35)] bg-[rgba(62,207,142,0.08)] px-3 py-2 text-sm">
-          {message}
-        </div>
-      )}
+      {error && <p className="text-sm text-[var(--crimson)]">{error}</p>}
 
       <Panel className="p-5 md:p-6">
         <h2 className="text-lg font-semibold text-[var(--text)]">New ticket</h2>

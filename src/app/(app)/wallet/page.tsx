@@ -1,9 +1,9 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
-import { Toast, type ToastTone } from "@/components/toast";
+import { useToast } from "@/components/toast-provider";
 import { formatMoney } from "@/lib/utils";
 
 type WalletData = {
@@ -41,15 +41,12 @@ type ClubMembership = {
 };
 
 export default function WalletPage() {
+  const toast = useToast();
   const { update } = useSession();
   const [data, setData] = useState<WalletData | null>(null);
   const [memberships, setMemberships] = useState<ClubMembership[]>([]);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [returnBusy, setReturnBusy] = useState(false);
-  const clearToast = useCallback(() => setToast(null), []);
 
   async function load() {
     const [walletRes, membershipRes] = await Promise.all([
@@ -73,8 +70,6 @@ export default function WalletPage() {
 
   async function saveName(e: FormEvent) {
     e.preventDefault();
-    setError(null);
-    setMessage(null);
     const res = await fetch("/api/profile", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -82,18 +77,16 @@ export default function WalletPage() {
     });
     const json = await res.json();
     if (!res.ok) {
-      setError(json.error || "Could not update name");
+      toast.error(json.error || "Could not update name");
       return;
     }
     await update({ name: json.user.name });
-    setMessage(`Display name set to “${json.user.name}”`);
+    toast.success(`Display name set to “${json.user.name}”`);
     await load();
   }
 
   async function deposit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setError(null);
-    setMessage(null);
     const form = new FormData(e.currentTarget);
     const res = await fetch("/api/wallet/deposit", {
       method: "POST",
@@ -107,18 +100,16 @@ export default function WalletPage() {
     });
     const json = await res.json();
     if (!res.ok) {
-      setError(json.error || "Deposit failed");
+      toast.error(json.error || "Deposit failed");
       return;
     }
-    setMessage(json.message);
+    toast.success(json.message);
     e.currentTarget.reset();
     await load();
   }
 
   async function withdraw(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setError(null);
-    setMessage(null);
     const form = new FormData(e.currentTarget);
     const res = await fetch("/api/wallet/withdraw", {
       method: "POST",
@@ -131,18 +122,16 @@ export default function WalletPage() {
     });
     const json = await res.json();
     if (!res.ok) {
-      setError(json.error || "Withdrawal failed");
+      toast.error(json.error || "Withdrawal failed");
       return;
     }
-    setMessage(json.message);
+    toast.success(json.message);
     e.currentTarget.reset();
     await load();
   }
 
   async function claimCoupon(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setError(null);
-    setMessage(null);
     const form = new FormData(e.currentTarget);
     const res = await fetch("/api/coupons/claim", {
       method: "POST",
@@ -151,14 +140,10 @@ export default function WalletPage() {
     });
     const json = await res.json();
     if (!res.ok) {
-      const err = json.error || "Could not claim coupon";
-      setError(err);
-      setToast({ text: err, tone: "error" });
+      toast.error(json.error || "Could not claim coupon");
       return;
     }
-    const ok = json.message || "Coupon claimed successfully!";
-    setMessage(ok);
-    setToast({ text: ok, tone: "success" });
+    toast.success(json.message || "Coupon claimed successfully!");
     e.currentTarget.reset();
     await load();
   }
@@ -166,8 +151,6 @@ export default function WalletPage() {
   async function returnToClub(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setReturnBusy(true);
-    setError(null);
-    setMessage(null);
     const form = new FormData(e.currentTarget);
     const res = await fetch("/api/club/return", {
       method: "POST",
@@ -181,13 +164,10 @@ export default function WalletPage() {
     const json = await res.json();
     setReturnBusy(false);
     if (!res.ok) {
-      const err = json.error || "Could not return credits";
-      setError(err);
-      setToast({ text: err, tone: "error" });
+      toast.error(json.error || "Could not return credits");
       return;
     }
-    setMessage(json.message);
-    setToast({ text: json.message, tone: "success" });
+    toast.success(json.message);
     e.currentTarget.reset();
     await load();
   }
@@ -199,12 +179,6 @@ export default function WalletPage() {
 
   return (
     <div className="space-y-6 animate-fade-up">
-      <Toast
-        message={toast?.text ?? null}
-        tone={toast?.tone}
-        onClose={clearToast}
-      />
-
       <div>
         <h1 className="text-4xl font-semibold text-[var(--gold-soft)]">Wallet</h1>
         <p className="mt-2 text-[var(--muted)]">
@@ -272,12 +246,6 @@ export default function WalletPage() {
           </div>
           <Button type="submit">Claim</Button>
         </form>
-        {message && !error && message.toLowerCase().includes("coupon") && (
-          <p className="mt-3 text-sm text-[var(--success)]">{message}</p>
-        )}
-        {error && (
-          <p className="mt-3 text-sm text-[var(--crimson)]">{error}</p>
-        )}
       </Panel>
 
       {memberships.length > 0 && (
@@ -398,18 +366,6 @@ export default function WalletPage() {
           </form>
         </Panel>
       </div>
-
-      {(message || error) && (
-        <div
-          className={`rounded-xl px-4 py-3 text-sm ${
-            error
-              ? "border border-[rgba(179,58,74,0.4)] bg-[rgba(179,58,74,0.12)]"
-              : "border border-[rgba(62,207,142,0.35)] bg-[rgba(62,207,142,0.08)]"
-          }`}
-        >
-          {error || message}
-        </div>
-      )}
 
       <Panel className="p-6">
         <h2 className="text-xl font-semibold">Recent transactions</h2>
