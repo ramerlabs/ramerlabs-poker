@@ -1588,59 +1588,68 @@ export function PokerTable({
       {canActNow ? (
         <div
           className={cn(
-            "table-action-dock is-your-turn",
-            compact && "is-mobile-sticky",
+            "turn-action-overlay",
+            compact && "is-compact",
             attentionUrgent && "is-urgent",
           )}
-          role="region"
+          role="dialog"
+          aria-modal="true"
           aria-label="Your turn actions"
         >
-          <div className="action-dock-head">
-            <div className="action-dock-meta">
-              <span className="action-dock-eyebrow">
-                {attentionUrgent ? "Hurry" : "Your turn"}
-              </span>
-              <span className="action-dock-title">
-                {canCheck ? "Check or bet" : `Call ${callAmount}`}
-              </span>
-              <span className="action-dock-timer-label">{secondsLeft}s left</span>
-            </div>
-            <TurnTimer secondsLeft={secondsLeft} total={turnSeconds} />
-          </div>
-          <div className="action-bar">
-            <Button disabled={busy} variant="danger" onClick={() => void act("fold")}>
-              Fold
-            </Button>
-            {canCheck ? (
-              <Button disabled={busy} variant="ghost" onClick={() => void act("check")}>
-                Check
-              </Button>
-            ) : (
-              <Button disabled={busy} variant="felt" onClick={() => void act("call")}>
-                Call {callAmount}
-              </Button>
+          <div className="turn-action-backdrop" aria-hidden />
+          <div
+            className={cn(
+              "table-action-dock is-your-turn is-popup",
+              attentionUrgent && "is-urgent",
             )}
-            <Button disabled={busy} variant="ghost" onClick={() => void act("allin")}>
-              All-in
-            </Button>
-            <div className="raise-row">
-              <Input
-                className="w-28"
-                placeholder="Raise to"
-                value={raiseTo}
-                onChange={(e) => setRaiseTo(e.target.value)}
-              />
-              <Button
-                disabled={busy || !raiseTo}
-                onClick={() => void act("raise", Number(raiseTo))}
-              >
-                Raise
+          >
+            <div className="action-dock-head">
+              <div className="action-dock-meta">
+                <span className="action-dock-eyebrow">
+                  {attentionUrgent ? "Hurry" : "Your turn"}
+                </span>
+                <span className="action-dock-title">
+                  {canCheck ? "Check or bet" : `Call ${callAmount}`}
+                </span>
+                <span className="action-dock-timer-label">{secondsLeft}s left</span>
+              </div>
+              <TurnTimer secondsLeft={secondsLeft} total={turnSeconds} />
+            </div>
+            <div className="action-bar">
+              <Button disabled={busy} variant="danger" onClick={() => void act("fold")}>
+                Fold
               </Button>
-              {!attentionAcked && (
-                <Button disabled={busy} variant="ghost" onClick={acknowledgeAttention}>
-                  Mute alerts
+              {canCheck ? (
+                <Button disabled={busy} variant="ghost" onClick={() => void act("check")}>
+                  Check
+                </Button>
+              ) : (
+                <Button disabled={busy} variant="felt" onClick={() => void act("call")}>
+                  Call {callAmount}
                 </Button>
               )}
+              <Button disabled={busy} variant="ghost" onClick={() => void act("allin")}>
+                All-in
+              </Button>
+              <div className="raise-row">
+                <Input
+                  className="w-28"
+                  placeholder="Raise to"
+                  value={raiseTo}
+                  onChange={(e) => setRaiseTo(e.target.value)}
+                />
+                <Button
+                  disabled={busy || !raiseTo}
+                  onClick={() => void act("raise", Number(raiseTo))}
+                >
+                  Raise
+                </Button>
+                {!attentionAcked && (
+                  <Button disabled={busy} variant="ghost" onClick={acknowledgeAttention}>
+                    Mute alerts
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </div>
