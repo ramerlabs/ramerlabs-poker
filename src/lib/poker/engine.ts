@@ -42,9 +42,16 @@ export function sanitizeTableClocks(state: PokerTableState): boolean {
     }
   }
 
+  // Serverless instances can disagree on wall-clock by a few seconds.
+  // Any future turnStartedAt freezes bots (waited < 0) until the lag catches up.
+  if (state.turnStartedAt != null && state.turnStartedAt > now) {
+    state.turnStartedAt = now;
+    changed = true;
+  }
+
   if (
     state.turnStartedAt != null &&
-    (state.turnStartedAt > now + 5_000 || now - state.turnStartedAt > 600_000)
+    now - state.turnStartedAt > 600_000
   ) {
     state.turnStartedAt = state.actionSeat != null ? now : null;
     changed = true;

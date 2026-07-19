@@ -20,8 +20,13 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
   const [key, setKey] = useState("");
 
   const refresh = useCallback(async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
     try {
-      const res = await fetch("/api/license/status", { cache: "no-store" });
+      const res = await fetch("/api/license/status", {
+        cache: "no-store",
+        signal: controller.signal,
+      });
       if (!res.ok) {
         setStatus({
           valid: false,
@@ -45,6 +50,7 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
       });
       return null;
     } finally {
+      clearTimeout(timer);
       setLoading(false);
     }
   }, []);

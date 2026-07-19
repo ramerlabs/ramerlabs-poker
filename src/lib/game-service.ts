@@ -295,7 +295,9 @@ function turnLimitMs(state: PokerTableState, userId: string) {
 
 function isTurnExpired(state: PokerTableState, userId: string) {
   if (state.turnStartedAt == null) return false;
-  return Date.now() - state.turnStartedAt >= turnLimitMs(state, userId);
+  // Clamp future clocks (cross-instance skew) so expiry cannot stall forever
+  const started = Math.min(state.turnStartedAt, Date.now());
+  return Date.now() - started >= turnLimitMs(state, userId);
 }
 
 /** Fold (or bot-act) when the turn clock has already hit 0 — never no-op and freeze. */
@@ -441,8 +443,9 @@ async function advanceOneBotIfReady(state: PokerTableState): Promise<{
   // Clock starts after deal/reveal — bots only need a brief think, not the full turn timer
   releaseStreetHoldIfReady(state);
   let turnStartedAt = state.turnStartedAt;
-  if (turnStartedAt == null) {
-    // Hold cleared but clock never started — unstick instead of freezing the table
+  if (turnStartedAt == null || turnStartedAt > Date.now()) {
+    // Hold cleared but clock never started / skew put clock in the future —
+    // unstick instead of freezing the table
     state.turnStartedAt = Date.now();
     turnStartedAt = state.turnStartedAt;
   }
