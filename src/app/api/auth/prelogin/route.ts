@@ -37,7 +37,19 @@ export async function POST(req: Request) {
       ok: true,
       requires2fa: Boolean(user.totpEnabled),
     });
-  } catch {
-    return NextResponse.json({ error: "Could not verify credentials" }, { status: 500 });
+  } catch (e) {
+    console.error("prelogin failed", e);
+    const poolBusy =
+      e instanceof Error &&
+      (/connection pool|P2024|Timed out fetching a new connection/i.test(e.message) ||
+        (e as { code?: string }).code === "P2024");
+    return NextResponse.json(
+      {
+        error: poolBusy
+          ? "Server is busy — wait a moment and try again"
+          : "Could not verify credentials",
+      },
+      { status: 500 },
+    );
   }
 }
