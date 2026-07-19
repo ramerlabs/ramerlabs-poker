@@ -20,27 +20,10 @@ export async function POST(req: Request) {
     }
 
     const email = parsed.data.email.toLowerCase();
-    let user: { passwordHash: string; totpEnabled: boolean } | null = null;
-    let lastErr: unknown;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        user = await prisma.user.findUnique({
-          where: { email },
-          select: { passwordHash: true, totpEnabled: true },
-        });
-        lastErr = null;
-        break;
-      } catch (e) {
-        lastErr = e;
-        const poolBusy =
-          e instanceof Error &&
-          (/connection pool|P2024|Timed out fetching a new connection/i.test(e.message) ||
-            (e as { code?: string }).code === "P2024");
-        if (!poolBusy || attempt === 2) throw e;
-        await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
-      }
-    }
-    if (lastErr) throw lastErr;
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { passwordHash: true, totpEnabled: true },
+    });
     if (!user) {
       return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
     }

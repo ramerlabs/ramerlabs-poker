@@ -1,39 +1,29 @@
 import { PrismaClient } from "@prisma/client";
+import { PrismaNeonHttp } from "@prisma/adapter-neon";
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 
 /**
- * Vercel serverless: many isolates × default connection_limit=5 exhausts Neon.
- * Cap at 3 so a single request can run a few sequential/parallel queries without
- * starving (limit=1 caused P2024 when purge/tick raced the main handler).
+ * Neon HTTP driver for Vercel serverless — avoids Prisma's TCP connection pool
+ * (P2024) that was starving login while room polls held connections.
  */
-function datasourceUrl(): string | undefined {
-  const raw = process.env.DATABASE_URL;
-  if (!raw) return undefined;
-  try {
-    const u = new URL(raw);
-    if (!u.searchParams.has("connection_limit")) {
-      u.searchParams.set("connection_limit", "3");
-    }
-    if (!u.searchParams.has("pool_timeout")) {
-      u.searchParams.set("pool_timeout", "10");
-    }
-    if (u.hostname.includes("-pooler") && !u.searchParams.has("pgbouncer")) {
-      u.searchParams.set("pgbouncer", "true");
-    }
-    return u.toString();
-  } catch {
-    return raw;
+function createPrisma(): PrismaClient {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    return new PrismaClient({
+      log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+    });
   }
-}
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    datasources: { db: { url: datasourceUrl() } },
+  // HTTP driver (not TCP pool) — required 2nd arg is neon query options
+  const adapter = new PrismaNeonHttp(url, { arrayMode: false, fullResults: true });
+  return new PrismaClient({
+    adapter,
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   });
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
 }
+
+export const prisma = globalForPrisma.prisma ?? createPrisma();
+
+// Reuse across warm serverless isolates
+globalForPrisma.prisma = prisma;

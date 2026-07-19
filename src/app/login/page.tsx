@@ -21,12 +21,15 @@ function LoginForm() {
     setLoading(true);
     setError(null);
 
+    const ac = new AbortController();
+    const kill = window.setTimeout(() => ac.abort(), 12_000);
     try {
       if (!requires2fa) {
         const pre = await fetch("/api/auth/prelogin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password }),
+          signal: ac.signal,
         });
         const preData = (await pre.json()) as {
           ok?: boolean;
@@ -62,9 +65,17 @@ function LoginForm() {
       }
       router.push(params.get("callbackUrl") || "/dashboard");
       router.refresh();
-    } catch {
-      setError("Could not sign in. Try again.");
+    } catch (err) {
+      const timedOut =
+        err instanceof DOMException && err.name === "AbortError";
+      setError(
+        timedOut
+          ? "Server is busy — wait a moment and try again"
+          : "Could not sign in. Try again.",
+      );
       setLoading(false);
+    } finally {
+      window.clearTimeout(kill);
     }
   }
 
