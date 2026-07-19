@@ -90,20 +90,6 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
     }
   }
 
-  async function onReplace() {
-    setBusy(true);
-    try {
-      await fetch("/api/license/deactivate", { method: "POST" });
-      setKey("");
-      toast.success("License cleared — enter a new key.");
-      await refresh();
-    } catch {
-      toast.error("Could not replace license.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] text-[var(--muted)]">
@@ -113,22 +99,7 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
   }
 
   if (status?.valid) {
-    return (
-      <>
-        {children}
-        {!status.skipped && (
-          <button
-            type="button"
-            onClick={() => void onReplace()}
-            disabled={busy}
-            className="fixed bottom-3 right-3 z-[200] rounded-lg border border-[var(--line)] bg-[rgba(10,16,28,0.88)] px-3 py-1.5 text-[11px] uppercase tracking-wider text-[var(--muted)] backdrop-blur hover:text-[var(--gold-soft)]"
-            title="Replace license"
-          >
-            License
-          </button>
-        )}
-      </>
-    );
+    return <>{children}</>;
   }
 
   const buyUrl = status?.buy_url || "https://ramerlabs.com/product/ramerlabs-poker/";
