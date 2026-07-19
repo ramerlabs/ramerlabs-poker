@@ -785,10 +785,19 @@ export async function getPublicGameState(
 ) {
   // tickRoomDebounced returns current state immediately and runs the tick in
   // the background — awaiting a full tick here caused 5–20s NET WEAK freezes.
-  const state =
+  let state =
     options?.tick === false
       ? await ensureGameState(roomId)
       : await tickRoomDebounced(roomId);
+
+  // Light polls skip tickRoom's roster sync — still merge DB seats so a freshly
+  // seated player appears even before the next tick claim.
+  if (options?.tick === false) {
+    const rosterCount = await prisma.roomPlayer.count({ where: { roomId } });
+    if (rosterCount !== state.seats.length) {
+      state = await syncRosterToLiveState(roomId);
+    }
+  }
 
   const row = await prisma.gameState.findUnique({
     where: { roomId },

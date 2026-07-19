@@ -606,6 +606,9 @@ export function PokerTable({
 
   const refreshInflight = useRef<Promise<void> | null>(null);
   const refreshQueued = useRef(false);
+  const refreshQueuedTick = useRef(false);
+  /** Monotonic id so a slow response never overwrites a newer one. */
+  const refreshApplyIdRef = useRef(0);
   const lastPlayerCountRef = useRef(initialPlayers.length);
   const lastStateVersionRef = useRef(0);
   const onPlayersChangedRef = useRef(onPlayersChanged);
@@ -624,15 +627,17 @@ export function PokerTable({
   }, []);
 
   const refresh = useCallback(async (opts?: { tick?: boolean; force?: boolean }) => {
-    if (refreshInflight.current && !opts?.force) {
-      // A refresh was requested while one is in flight — run again when it finishes
-      // so we don't keep serving a pre-sit snapshot forever.
+    // Never run parallel room fetches. `force` used to bypass this and let an
+    // older in-flight poll overwrite a newer sit/Ably snapshot (other player invisible).
+    if (refreshInflight.current) {
       refreshQueued.current = true;
+      if (opts?.tick !== false) refreshQueuedTick.current = true;
       return refreshInflight.current;
     }
 
     // Default: light payload + tick (keeps bots/timeouts moving without heavy room loads)
     const doTick = opts?.tick !== false;
+    const applyId = ++refreshApplyIdRef.current;
     const started = performance.now();
     const run = (async () => {
       try {
@@ -642,6 +647,8 @@ export function PokerTable({
           headers: { "Cache-Control": "no-cache" },
         });
         const ms = Math.round(performance.now() - started);
+        // A newer refresh was started (should not happen with queueing, but be safe)
+        if (applyId !== refreshApplyIdRef.current) return;
         if (!res.ok) {
           setConnFails((n) => n + 1);
           return;
@@ -651,6 +658,7 @@ export function PokerTable({
           room?: { players?: RoomPlayer[]; chatEnabled?: boolean };
           chats?: TableChatBubble[];
         }>(res);
+        if (applyId !== refreshApplyIdRef.current) return;
         setLatencyMs(Math.min(ms, 9999));
         setConnFails(0);
         if (json.game?.state) {
@@ -674,7 +682,7 @@ export function PokerTable({
           for (const chat of json.chats) ingestChat(chat);
         }
       } catch {
-        setConnFails((n) => n + 1);
+        if (applyId === refreshApplyIdRef.current) setConnFails((n) => n + 1);
       }
     })();
 
@@ -682,7 +690,9 @@ export function PokerTable({
       if (refreshInflight.current === run) refreshInflight.current = null;
       if (refreshQueued.current) {
         refreshQueued.current = false;
-        void refresh({ tick: false, force: true });
+        const needTick = refreshQueuedTick.current;
+        refreshQueuedTick.current = false;
+        void refresh({ tick: needTick });
       }
     });
     return refreshInflight.current;
