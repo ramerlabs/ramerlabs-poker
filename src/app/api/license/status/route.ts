@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
-import { getPublicLicenseStatus, validateStored } from "@/lib/license";
+import { getPublicLicenseStatus } from "@/lib/license";
 
+/**
+ * UI gate only. Returns cached DB status immediately.
+ * Does not block on remote validate (that was freezing "Checking license…").
+ * Background revalidation is optional and never clears an active key mid-play
+ * (see validateStored soft-fail rules).
+ */
 export async function GET() {
-  // Prefer cached DB status for the page gate. Revalidate in the background so a
-  // slow/flaky license server cannot leave the UI on "Checking license…".
   const status = await getPublicLicenseStatus();
-  void validateStored(false).catch(() => {});
   return NextResponse.json(status);
 }

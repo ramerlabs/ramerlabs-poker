@@ -8,7 +8,10 @@ export const BUY_URL =
   process.env.LICENSE_BUY_URL || "https://ramerlabs.com/product/ramerlabs-poker/";
 
 const LICENSE_SETTING_KEY = "rlm_license";
-const REVALIDATE_MS = 6 * 60 * 60 * 1000; // 6 hours
+/** How often background revalidation may contact the license server. */
+const REVALIDATE_MS = 24 * 60 * 60 * 1000; // 24 hours
+/** In-memory cache so room polls (1–2s) do not hit Prisma for license every time. */
+const MEMORY_TTL_MS = 60_000;
 
 type LicenseState = {
   license_key: string;
@@ -17,6 +20,13 @@ type LicenseState = {
   last_validated_at?: string;
   last_error?: string;
 };
+
+type MemoryCache = {
+  at: number;
+  state: LicenseState | null;
+};
+
+let memoryCache: MemoryCache | null = null;
 
 function siteUrl(): string {
   const raw =
@@ -30,7 +40,6 @@ function siteUrl(): string {
     if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) return cleaned;
     return `https://${cleaned}`;
   }
-  // Production default — never fall back to localhost on Vercel (breaks validate).
   if (process.env.VERCEL || process.env.NODE_ENV === "production") {
     return "https://poker.ramerlabs.com";
   }
@@ -42,17 +51,30 @@ function licenseSkip(): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
+function bumpMemory(state: LicenseState | null) {
+  memoryCache = { at: Date.now(), state };
+}
+
 async function readState(): Promise<LicenseState | null> {
+  if (memoryCache && Date.now() - memoryCache.at < MEMORY_TTL_MS) {
+    return memoryCache.state;
+  }
   try {
     const row = await prisma.appSetting.findUnique({ where: { key: LICENSE_SETTING_KEY } });
-    if (!row?.value || typeof row.value !== "object") return null;
-    return row.value as LicenseState;
+    if (!row?.value || typeof row.value !== "object") {
+      bumpMemory(null);
+      return null;
+    }
+    const state = row.value as LicenseState;
+    bumpMemory(state);
+    return state;
   } catch {
-    return null;
+    return memoryCache?.state ?? null;
   }
 }
 
 async function writeState(state: LicenseState): Promise<void> {
+  bumpMemory(state);
   await prisma.appSetting.upsert({
     where: { key: LICENSE_SETTING_KEY },
     create: { key: LICENSE_SETTING_KEY, value: state },
@@ -61,6 +83,7 @@ async function writeState(state: LicenseState): Promise<void> {
 }
 
 async function clearState(): Promise<void> {
+  bumpMemory(null);
   try {
     await prisma.appSetting.delete({ where: { key: LICENSE_SETTING_KEY } });
   } catch {
@@ -71,7 +94,7 @@ async function clearState(): Promise<void> {
 async function postLicense(endpoint: string, body: Record<string, unknown>) {
   const url = `${licenseServerUrl()}/wp-json/ramerlabs-license/v1/${endpoint}`;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30000);
+  const timer = setTimeout(() => controller.abort(), 8_000);
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -92,6 +115,13 @@ export function publicStatus(extra: Record<string, unknown> = {}) {
     site_name: SITE_NAME,
     ...extra,
   };
+}
+
+/** Fast local check only — used by every gameplay API. Never calls remote server. */
+export async function getCachedLicenseValid(): Promise<boolean> {
+  if (licenseSkip()) return true;
+  const state = await readState();
+  return Boolean(state?.valid && state?.license_key);
 }
 
 export async function getPublicLicenseStatus() {
@@ -157,6 +187,10 @@ export async function activate(licenseKey: string) {
   };
 }
 
+/**
+ * Background / status-page revalidation only.
+ * Never used on room polls — those use getCachedLicenseValid / requireLicense.
+ */
 export async function validateStored(force = false): Promise<{
   valid: boolean;
   buy_url: string;
@@ -200,8 +234,7 @@ export async function validateStored(force = false): Promise<{
     const hardRevoke =
       /\b(revoked|expired|disabled|suspended|invalid key|not found|no license)\b/.test(detail);
 
-    // Soft-fail: keep a previously active license on ambiguous / transient rejects so
-    // mid-hand table polls are not nuked by a single bad validate response.
+    // Keep tables playable: never clear a previously-valid activation from a soft reject.
     if (state.valid && (!ok || !hardRevoke)) {
       await writeState({
         ...state,
@@ -211,7 +244,22 @@ export async function validateStored(force = false): Promise<{
       return {
         valid: true,
         buy_url: BUY_URL,
-        message: "License server returned a soft failure — using cached activation.",
+        message: "License server soft-failure — cached activation kept.",
+      };
+    }
+
+    // Hard revoke only (rare). Still prefer keeping play until admin re-activates
+    // unless force=true from an explicit admin/status refresh.
+    if (state.valid && !force) {
+      await writeState({
+        ...state,
+        valid: true,
+        last_error: message,
+      });
+      return {
+        valid: true,
+        buy_url: BUY_URL,
+        message: "License may need renewal — cached activation kept for active tables.",
       };
     }
 
@@ -223,7 +271,6 @@ export async function validateStored(force = false): Promise<{
     });
     return { valid: false, buy_url: BUY_URL, message };
   } catch {
-    // Network blip: keep prior valid state so a temporary outage does not lock the table.
     if (state.valid) {
       return { valid: true, buy_url: BUY_URL };
     }
@@ -255,20 +302,22 @@ export async function deactivate() {
   return { success: true, message: "License deactivated.", buy_url: BUY_URL };
 }
 
+/**
+ * Gameplay / API gate: local DB (+ memory) only.
+ * Remote license server is NEVER contacted here — that was freezing tables mid-hand.
+ */
 export async function requireLicense(): Promise<
   { ok: true } | { ok: false; error: NextResponse }
 > {
-  const result = await validateStored(false);
-  if (result.valid) return { ok: true };
+  const valid = await getCachedLicenseValid();
+  if (valid) return { ok: true };
   return {
     ok: false,
     error: NextResponse.json(
       {
         error: "License required",
-        detail:
-          result.message ||
-          "A valid license is required. Buy a license at ramerlabs.com.",
-        buy_url: result.buy_url || BUY_URL,
+        detail: "A valid license is required. Buy a license at ramerlabs.com.",
+        buy_url: BUY_URL,
       },
       { status: 403 },
     ),
