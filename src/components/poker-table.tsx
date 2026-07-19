@@ -126,37 +126,33 @@ const POT_FALLBACK = { x: "38%", y: "40%" };
 
 type SeatLayout = Record<number, { left: string; top: string }>;
 
-/** Seats on the rail — tucked closer to the felt edge without covering the board. */
-const SEAT_LAYOUT: SeatLayout = {
-  0: { left: "50%", top: "3%" },
-  1: { left: "83%", top: "11%" },
-  2: { left: "93%", top: "46%" },
-  3: { left: "83%", top: "85%" },
-  4: { left: "50%", top: "97%" },
-  5: { left: "17%", top: "85%" },
-  6: { left: "7%", top: "46%" },
-  7: { left: "17%", top: "11%" },
-  8: { left: "68%", top: "3%" },
-};
-
-/** Phone / fullscreen — seats pulled inward so nodes stay on-screen. */
-const SEAT_LAYOUT_MOBILE: SeatLayout = {
-  0: { left: "50%", top: "7%" },
-  1: { left: "78%", top: "16%" },
-  2: { left: "88%", top: "46%" },
-  3: { left: "78%", top: "78%" },
-  4: { left: "50%", top: "90%" },
-  5: { left: "22%", top: "78%" },
-  6: { left: "12%", top: "46%" },
-  7: { left: "22%", top: "16%" },
-  8: { left: "66%", top: "7%" },
-};
+/**
+ * Place seats evenly around the oval rail for the table's seat count (2–9).
+ * Starts at top-center and goes clockwise so spacing stays equal for 6-max or 9-max tables.
+ */
+function buildSeatLayout(seatCount: number, compact = false): SeatLayout {
+  const n = Math.max(2, Math.min(9, Math.floor(seatCount) || 2));
+  const rx = compact ? 38 : 43;
+  const ry = compact ? 41.5 : 47;
+  const layout: SeatLayout = {};
+  for (let i = 0; i < n; i += 1) {
+    // -90° = top; increasing angle walks clockwise on screen
+    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    const left = 50 + rx * Math.cos(angle);
+    const top = 50 + ry * Math.sin(angle);
+    layout[i] = {
+      left: `${Math.min(96, Math.max(4, left)).toFixed(2)}%`,
+      top: `${Math.min(97, Math.max(3, top)).toFixed(2)}%`,
+    };
+  }
+  return layout;
+}
 
 function isBot(userId: string) {
   return userId.startsWith("bot_");
 }
 
-function seatOrigin(seat: number, layout: SeatLayout = SEAT_LAYOUT): { x: string; y: string } {
+function seatOrigin(seat: number, layout: SeatLayout): { x: string; y: string } {
   const pos = layout[seat] ?? layout[0]!;
   return { x: pos.left, y: pos.top };
 }
@@ -164,7 +160,7 @@ function seatOrigin(seat: number, layout: SeatLayout = SEAT_LAYOUT): { x: string
 /** Place bet/call chips between the seat and the pot. */
 function seatBetToward(
   seat: number,
-  layout: SeatLayout = SEAT_LAYOUT,
+  layout: SeatLayout,
 ): "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw" {
   const pos = layout[seat] ?? layout[0]!;
   const left = Number.parseFloat(pos.left);
@@ -418,7 +414,8 @@ export function PokerTable({
   }, []);
 
   const compact = fullscreen || narrow;
-  const seatLayout = compact ? SEAT_LAYOUT_MOBILE : SEAT_LAYOUT;
+  const seatCount = Math.min(Math.max(maxPlayers, 2), 9);
+  const seatLayout = useMemo(() => buildSeatLayout(seatCount, compact), [seatCount, compact]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1338,8 +1335,8 @@ export function PokerTable({
   }, [state.seats, players]);
 
   const seatSlots = useMemo(
-    () => Array.from({ length: Math.min(maxPlayers, 9) }, (_, i) => i),
-    [maxPlayers],
+    () => Array.from({ length: seatCount }, (_, i) => i),
+    [seatCount],
   );
 
   const actorName =
@@ -1775,7 +1772,7 @@ export function PokerTable({
         <div className="pointer-events-none absolute inset-0 z-20 overflow-visible">
         {seatSlots.map((seatIndex) => {
           const seat = occupiedSeats.get(seatIndex);
-          const pos = seatLayout[seatIndex] ?? seatLayout[seatIndex % 9]!;
+          const pos = seatLayout[seatIndex] ?? seatLayout[0]!;
           const reservedHere = preferredSeat === seatIndex;
           const isMe = Boolean(seat && myUserId && seat.userId === myUserId);
 
