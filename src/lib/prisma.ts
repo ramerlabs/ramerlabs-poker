@@ -1,39 +1,40 @@
 import { PrismaClient } from "@prisma/client";
-import { PrismaNeon } from "@prisma/adapter-neon";
-import { neonConfig } from "@neondatabase/serverless";
-import ws from "ws";
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
-
-// Neon serverless WebSocket driver (supports $transaction — HTTP adapter does not).
-neonConfig.webSocketConstructor = ws;
+const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 
 /**
- * Neon WebSocket adapter: avoids Prisma TCP pool exhaustion while still
- * supporting interactive transactions required by the game table.
+ * Neon pooler + small Prisma pool. Avoid Neon HTTP (breaks $transaction / freezes
+ * tables) and avoid large WS pools (connect timeouts under Vercel fan-out).
  */
-function createPrisma(): PrismaClient {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    return new PrismaClient({
-      log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
-    });
+function datasourceUrl(): string | undefined {
+  const raw = process.env.DATABASE_URL;
+  if (!raw) return undefined;
+  try {
+    const u = new URL(raw);
+    if (!u.searchParams.has("connection_limit")) {
+      u.searchParams.set("connection_limit", "3");
+    }
+    if (!u.searchParams.has("pool_timeout")) {
+      u.searchParams.set("pool_timeout", "8");
+    }
+    if (u.hostname.includes("-pooler") && !u.searchParams.has("pgbouncer")) {
+      u.searchParams.set("pgbouncer", "true");
+    }
+    // Avoid prepared-statement issues through PgBouncer
+    if (!u.searchParams.has("statement_cache_size")) {
+      u.searchParams.set("statement_cache_size", "0");
+    }
+    return u.toString();
+  } catch {
+    return raw;
   }
-
-  const adapter = new PrismaNeon({
-    connectionString: url,
-    max: 3,
-    idleTimeoutMillis: 10_000,
-    connectionTimeoutMillis: 8_000,
-  });
-
-  return new PrismaClient({
-    adapter,
-    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
-  });
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrisma();
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    datasources: { db: { url: datasourceUrl() } },
+    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+  });
+
 globalForPrisma.prisma = prisma;
