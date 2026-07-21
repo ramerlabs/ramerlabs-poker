@@ -12,6 +12,21 @@ const schema = z.object({
     .regex(/^[a-zA-Z0-9 _.\-]+$/, "Use letters, numbers, spaces, . _ or - only"),
 });
 
+export async function GET() {
+  const authResult = await requireUser();
+  if ("error" in authResult) return authResult.error;
+
+  const user = await prisma.user.findUnique({
+    where: { id: authResult.userId },
+    select: { id: true, name: true, email: true, avatarUrl: true },
+  });
+  if (!user) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ user });
+}
+
 export async function PATCH(req: Request) {
   const authResult = await requireUser();
   if ("error" in authResult) return authResult.error;
@@ -27,7 +42,7 @@ export async function PATCH(req: Request) {
   const user = await prisma.user.update({
     where: { id: authResult.userId },
     data: { name: parsed.data.name },
-    select: { id: true, name: true, email: true },
+    select: { id: true, name: true, email: true, avatarUrl: true },
   });
 
   return NextResponse.json({ user });

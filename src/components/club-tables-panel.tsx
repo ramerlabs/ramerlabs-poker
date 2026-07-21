@@ -37,13 +37,16 @@ export type ClubTable = {
 
 type ClubTablesPanelProps = {
   rooms: ClubTable[];
-  busy: boolean;
-  editingId: string | null;
-  onEditToggle: (roomId: string) => void;
-  onSave: (e: FormEvent<HTMLFormElement>, roomId: string) => void;
-  onClose: (id: string, name: string) => void;
-  onReopen: (id: string) => void;
-  onCopyInvite: (code: string) => void;
+  busy?: boolean;
+  editingId?: string | null;
+  readOnly?: boolean;
+  title?: string;
+  subtitle?: string;
+  onEditToggle?: (roomId: string) => void;
+  onSave?: (e: FormEvent<HTMLFormElement>, roomId: string) => void;
+  onClose?: (id: string, name: string) => void;
+  onReopen?: (id: string) => void;
+  onCopyInvite?: (code: string) => void;
 };
 
 function statusTone(status: string): "green" | "gold" | "muted" {
@@ -60,8 +63,11 @@ function statusLabel(status: string) {
 
 export function ClubTablesPanel({
   rooms,
-  busy,
-  editingId,
+  busy = false,
+  editingId = null,
+  readOnly = false,
+  title = "Club tables",
+  subtitle = "Tables created for your club. Members use club credits to play here.",
   onEditToggle,
   onSave,
   onClose,
@@ -78,18 +84,18 @@ export function ClubTablesPanel({
             <span className="club-tables-panel-icon" aria-hidden>
               <Spade className="h-5 w-5" />
             </span>
-            <h2 className="text-xl font-semibold">Club tables</h2>
+            <h2 className="text-xl font-semibold">{title}</h2>
           </div>
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            Tables created for your club. Members use club credits to play here.
-          </p>
+          <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone="green">{openCount} open</Badge>
           <Badge tone="gold">{rooms.length} total</Badge>
-          <Link href="/rooms">
-            <Button variant="primary">Create table</Button>
-          </Link>
+          {!readOnly && (
+            <Link href="/rooms">
+              <Button variant="primary">Create table</Button>
+            </Link>
+          )}
         </div>
       </div>
 
@@ -100,12 +106,15 @@ export function ClubTablesPanel({
           </div>
           <h3 className="mt-4 text-lg font-semibold text-[var(--gold-soft)]">No tables yet</h3>
           <p className="mt-2 max-w-md text-sm text-[var(--muted)]">
-            Create a table from Rooms — it will automatically belong to your club and use club
-            credits for buy-ins.
+            {readOnly
+              ? "Your club owner has not opened any tables yet. Ask them to create one."
+              : "Create a table from Rooms — it will automatically belong to your club and use club credits for buy-ins."}
           </p>
-          <Link href="/rooms" className="mt-4 inline-block">
-            <Button variant="felt">Go to Rooms</Button>
-          </Link>
+          {!readOnly && (
+            <Link href="/rooms" className="mt-4 inline-block">
+              <Button variant="felt">Go to Rooms</Button>
+            </Link>
+          )}
         </div>
       ) : (
         <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -180,14 +189,16 @@ export function ClubTablesPanel({
                     </span>
                     <div className="mt-1 flex items-center gap-2">
                       <code className="club-table-invite-code">{room.inviteCode}</code>
-                      <button
-                        type="button"
-                        className="club-table-invite-copy"
-                        onClick={() => onCopyInvite(room.inviteCode!)}
-                        title="Copy invite code"
-                      >
-                        <Copy className="h-3.5 w-3.5" />
-                      </button>
+                      {onCopyInvite ? (
+                        <button
+                          type="button"
+                          className="club-table-invite-copy"
+                          onClick={() => onCopyInvite(room.inviteCode!)}
+                          title="Copy invite code"
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}
@@ -196,40 +207,44 @@ export function ClubTablesPanel({
                   <Link href={openHref} className="flex-1 sm:flex-none">
                     <Button variant="felt" className="w-full sm:w-auto">
                       <ExternalLink className="h-4 w-4" />
-                      Open
+                      {readOnly ? "Join table" : "Open"}
                     </Button>
                   </Link>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => onEditToggle(room.id)}
-                  >
-                    <Pencil className="h-4 w-4" />
-                    {isEditing ? "Cancel" : "Edit"}
-                  </Button>
-                  {room.status !== "CLOSED" ? (
-                    <Button
-                      type="button"
-                      variant="danger"
-                      disabled={busy}
-                      onClick={() => onClose(room.id, room.name)}
-                    >
-                      <XCircle className="h-4 w-4" />
-                      Close
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      disabled={busy}
-                      onClick={() => onReopen(room.id)}
-                    >
-                      Reopen
-                    </Button>
+                  {!readOnly && onEditToggle && onClose && onReopen && onSave && (
+                    <>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => onEditToggle(room.id)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                        {isEditing ? "Cancel" : "Edit"}
+                      </Button>
+                      {room.status !== "CLOSED" ? (
+                        <Button
+                          type="button"
+                          variant="danger"
+                          disabled={busy}
+                          onClick={() => onClose(room.id, room.name)}
+                        >
+                          <XCircle className="h-4 w-4" />
+                          Close
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() => onReopen(room.id)}
+                        >
+                          Reopen
+                        </Button>
+                      )}
+                    </>
                   )}
                 </div>
 
-                {isEditing && (
+                {!readOnly && isEditing && onSave && (
                   <form
                     onSubmit={(e) => onSave(e, room.id)}
                     className="club-table-edit-form"

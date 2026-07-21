@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Badge, Button, Input, Label, Panel } from "@/components/ui";
 import { ClubTablesPanel, type ClubTable } from "@/components/club-tables-panel";
+import { ClubMemberView, type MemberClub } from "@/components/club-member-view";
 import { useToast } from "@/components/toast-provider";
 
 type ClubSummary = {
@@ -47,36 +48,53 @@ export default function ClubPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [assignUserId, setAssignUserId] = useState("");
+  const [pageMode, setPageMode] = useState<"owner" | "member">("owner");
+  const [memberships, setMemberships] = useState<MemberClub[]>([]);
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const [mineRes, clientsRes, roomsRes] = await Promise.all([
-        fetch("/api/club/mine"),
-        fetch("/api/club/clients"),
-        fetch("/api/club/rooms"),
-      ]);
-      const mineJson = await mineRes.json();
-      const clientsJson = await clientsRes.json();
-      const roomsJson = await roomsRes.json().catch(() => ({}));
-      if (!mineRes.ok) {
-        setError(mineJson.error || "Club owner access required");
+      const mineRes = await fetch("/api/club/mine");
+      if (mineRes.ok) {
+        const mineJson = await mineRes.json();
+        const [clientsRes, roomsRes] = await Promise.all([
+          fetch("/api/club/clients"),
+          fetch("/api/club/rooms"),
+        ]);
+        const clientsJson = await clientsRes.json();
+        const roomsJson = await roomsRes.json().catch(() => ({}));
+        setPageMode("owner");
+        setClub(mineJson.club);
+        setTransfers(mineJson.transfers ?? []);
+        if (clientsRes.ok) {
+          setClients(clientsJson.clients ?? []);
+          if (!assignUserId && clientsJson.clients?.[0]) {
+            setAssignUserId(clientsJson.clients[0].user.id);
+          }
+        }
+        if (roomsRes.ok) setRooms(roomsJson.rooms ?? []);
+        return;
+      }
+
+      const memberRes = await fetch("/api/club/member");
+      const memberJson = await memberRes.json();
+      if (memberRes.ok) {
+        setPageMode("member");
+        setMemberships(memberJson.memberships ?? []);
         setClub(null);
         setClients([]);
         setTransfers([]);
         setRooms([]);
+        setError(null);
         return;
       }
-      setClub(mineJson.club);
-      setTransfers(mineJson.transfers ?? []);
-      if (clientsRes.ok) {
-        setClients(clientsJson.clients ?? []);
-        if (!assignUserId && clientsJson.clients?.[0]) {
-          setAssignUserId(clientsJson.clients[0].user.id);
-        }
-      }
-      if (roomsRes.ok) setRooms(roomsJson.rooms ?? []);
+
+      setError(memberJson.error || "You are not a club owner or member");
+      setClub(null);
+      setClients([]);
+      setTransfers([]);
+      setRooms([]);
     } catch {
       setError("Could not load club");
     } finally {
@@ -214,12 +232,16 @@ export default function ClubPage() {
     return <div className="text-[var(--muted)]">Loading club…</div>;
   }
 
+  if (pageMode === "member" && memberships.length > 0) {
+    return <ClubMemberView memberships={memberships} />;
+  }
+
   if (error || !club) {
     return (
       <Panel className="p-6">
         <h1 className="text-2xl font-semibold text-[var(--gold-soft)]">Club</h1>
         <p className="mt-2 text-sm text-[var(--muted)]">
-          {error || "You are not a club owner. Ask a platform admin to assign you."}
+          {error || "You are not a club owner or member. Ask a platform admin or club owner."}
         </p>
       </Panel>
     );

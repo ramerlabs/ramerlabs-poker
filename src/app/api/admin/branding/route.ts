@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getPlatformSettings } from "@/lib/game-service";
+import { invalidateBrandingCache } from "@/lib/branding";
 import { requireAdmin } from "@/lib/session";
 
 const schema = z.object({
@@ -52,6 +53,8 @@ export async function PUT(req: Request) {
       ...("logoUrl" in parsed.data ? { logoUrl: parsed.data.logoUrl } : {}),
     },
   });
+
+  invalidateBrandingCache();
 
   return NextResponse.json({
     branding: {

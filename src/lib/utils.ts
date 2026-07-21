@@ -30,6 +30,27 @@ export function toNumber(value: { toString(): string } | number | string | null 
   return Number(value.toString());
 }
 
+/** Round chip/money values to avoid float artifacts like 0.030000000000000002. */
+export function roundMoney(value: number, decimals = 2): number {
+  if (!Number.isFinite(value)) return 0;
+  const factor = 10 ** decimals;
+  return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+/** Display chips with fixed decimal places (default 2). */
+export function formatChips(amount: number | string, decimals = 2): string {
+  const n = typeof amount === "string" ? Number(amount) : amount;
+  return roundMoney(Number.isFinite(n) ? n : 0, decimals).toLocaleString("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+
+/** Plain chip string for inputs (no thousands separators). */
+export function chipAmountString(amount: number, decimals = 2): string {
+  return roundMoney(amount, decimals).toFixed(decimals);
+}
+
 /** Parse a fetch Response as JSON; avoid cryptic errors when the server returns HTML. */
 export async function readJson<T = unknown>(res: Response): Promise<T> {
   const text = await res.text();

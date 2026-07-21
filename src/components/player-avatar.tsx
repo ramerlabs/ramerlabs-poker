@@ -1,3 +1,5 @@
+"use client";
+
 import { cn } from "@/lib/utils";
 
 const SKINS = ["#e8c4a8", "#d4a574", "#c68642", "#f1c27d", "#ffdbac", "#e0ac69"];
@@ -59,15 +61,18 @@ function Face({ seed }: { seed: string }) {
 export function PlayerAvatar({
   userId,
   name,
+  avatarUrl,
   className,
   size = "md",
 }: {
   userId: string;
   name?: string;
+  avatarUrl?: string | null;
   className?: string;
   size?: "sm" | "md" | "lg";
 }) {
   const sizes = { sm: "h-8 w-8", md: "h-11 w-11", lg: "h-14 w-14" };
+  const hasPhoto = Boolean(avatarUrl?.trim());
 
   return (
     <div
@@ -78,7 +83,17 @@ export function PlayerAvatar({
       )}
       title={name}
     >
-      <Face seed={userId || name || "player"} />
+      {hasPhoto ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={avatarUrl!}
+          alt={name ? `${name} avatar` : "Player avatar"}
+          className="h-full w-full object-cover"
+          draggable={false}
+        />
+      ) : (
+        <Face seed={userId || name || "player"} />
+      )}
     </div>
   );
 }

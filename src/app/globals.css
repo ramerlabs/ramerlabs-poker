@@ -514,6 +514,22 @@ a {
   line-height: 1.05;
 }
 
+.felt-brand-center .brand-footer {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: clamp(0.58rem, 1.2vw, 0.72rem);
+  letter-spacing: 0.16em;
+  padding-left: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.22);
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .felt-brand-center .brand-table {
   display: block;
   margin-top: 0.35rem;

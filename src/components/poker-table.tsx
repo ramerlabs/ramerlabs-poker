@@ -24,7 +24,7 @@ import {
   unlockAudio,
 } from "@/lib/sounds";
 import { getHandHints } from "@/lib/poker/hand-hints";
-import { cn, readJson } from "@/lib/utils";
+import { cn, readJson, formatChips, roundMoney, chipAmountString } from "@/lib/utils";
 import {
   REACTION_IMPACT_MS,
   REACTION_VISIBLE_MS,
@@ -37,7 +37,7 @@ type RoomPlayer = {
   userId: string;
   seat: number;
   stack: number;
-  user: { id: string; name: string | null; email: string };
+  user: { id: string; name: string | null; email: string; avatarUrl?: string | null };
 };
 
 type BetFx = {
@@ -304,6 +304,7 @@ export function PokerTable({
   roomId,
   tableName = "Table",
   brandName = "RamerLabs",
+  brandFooter = "RamerLabs Poker",
   initialState,
   players: initialPlayers,
   maxPlayers = 8,
@@ -328,6 +329,8 @@ export function PokerTable({
   roomId: string;
   tableName?: string;
   brandName?: string;
+  /** Subtitle under brand on felt (admin table footer). */
+  brandFooter?: string;
   initialState: PublicTableState;
   players: RoomPlayer[];
   maxPlayers?: number;
@@ -364,6 +367,16 @@ export function PokerTable({
   const [portrait, setPortrait] = useState(false);
   const [state, setState] = useState(initialState);
   const [players, setPlayers] = useState(initialPlayers);
+  const [feltBrandName, setFeltBrandName] = useState(brandName);
+  const [feltBrandFooter, setFeltBrandFooter] = useState(brandFooter);
+
+  useEffect(() => {
+    setFeltBrandName(brandName);
+  }, [brandName]);
+
+  useEffect(() => {
+    setFeltBrandFooter(brandFooter);
+  }, [brandFooter]);
 
   // Parent props are a snapshot from page load / rare full reloads.
   // Live poll/Ably owns updates after mount — never roll back to a stale snapshot
@@ -389,6 +402,7 @@ export function PokerTable({
   const [raiseSlider, setRaiseSlider] = useState(0);
   const [autoCheck, setAutoCheck] = useState(false);
   const [autoFold, setAutoFold] = useState(false);
+  const lastAutoResetHand = useRef(initialState.handNumber);
   const [reactionMenu, setReactionMenu] = useState<ReactionMenuTarget | null>(null);
   const [activeReactions, setActiveReactions] = useState<ActiveReaction[]>([]);
   const [reactionBusy, setReactionBusy] = useState(false);
@@ -836,6 +850,7 @@ export function PokerTable({
           readJson<{
             game?: { state?: PublicTableState; version?: number };
             room?: { players?: RoomPlayer[]; chatEnabled?: boolean };
+            branding?: { siteName?: string; tableFooter?: string };
             chats?: TableChatBubble[];
             serverNow?: number;
           }>(res),
@@ -873,6 +888,8 @@ export function PokerTable({
           }
         }
         if (typeof json.room?.chatEnabled === "boolean") setChatOn(json.room.chatEnabled);
+        if (json.branding?.siteName) setFeltBrandName(json.branding.siteName);
+        if (json.branding?.tableFooter) setFeltBrandFooter(json.branding.tableFooter);
         if (json.chats?.length) {
           for (const chat of json.chats) ingestChatRef.current(chat);
         }
@@ -1029,7 +1046,7 @@ export function PokerTable({
   ]);
 
   const tipAmount = Math.max(1, state.smallBlind || 1);
-  const callAmount = Math.max(0, (state.currentBet || 0) - (mySeat?.bet || 0));
+  const callAmount = roundMoney(Math.max(0, (state.currentBet || 0) - (mySeat?.bet || 0)));
   const canCheck = callAmount <= 0;
 
   const raiseBounds = useMemo(() => {
@@ -1038,7 +1055,7 @@ export function PokerTable({
     const minTo = canCheck
       ? Math.min(maxTo, Math.max(state.bigBlind, state.minRaise))
       : Math.min(maxTo, state.currentBet + state.minRaise);
-    return { min: minTo, max: maxTo };
+    return { min: roundMoney(minTo), max: roundMoney(maxTo) };
   }, [mySeat, canCheck, state.bigBlind, state.currentBet, state.minRaise]);
 
   const isMyTurn = mySeat != null && state.actionSeat === mySeat.seat;
@@ -1068,8 +1085,15 @@ export function PokerTable({
     if (!canActNow || raiseBounds.max <= 0) return;
     const start = raiseBounds.min;
     setRaiseSlider(start);
-    setRaiseTo(String(start));
+    setRaiseTo(chipAmountString(start));
   }, [canActNow, turnKey, raiseBounds.min, raiseBounds.max]);
+
+  useEffect(() => {
+    if (state.handNumber === lastAutoResetHand.current) return;
+    lastAutoResetHand.current = state.handNumber;
+    setAutoCheck(false);
+    setAutoFold(false);
+  }, [state.handNumber]);
 
   useEffect(() => {
     if (!canActNow || busy || actingRef.current) return;
@@ -2002,7 +2026,7 @@ export function PokerTable({
                 {attentionUrgent ? "Hurry" : "Your turn"}
               </span>
               <span className="action-dock-title">
-                {canCheck ? "Check or bet" : `Call ${callAmount}`}
+                {canCheck ? "Check or bet" : `Call ${formatChips(callAmount)}`}
               </span>
               <span className="action-dock-timer-label">{secondsLeft}s left</span>
             </div>
@@ -2018,7 +2042,7 @@ export function PokerTable({
               </Button>
             ) : (
               <Button disabled={busy} variant="felt" onClick={() => void act("call")}>
-                Call {callAmount}
+                Call {formatChips(callAmount)}
               </Button>
             )}
             <Button
@@ -2066,7 +2090,7 @@ export function PokerTable({
                 disabled={busy || raiseBounds.max <= raiseBounds.min}
                 onChange={(v) => {
                   setRaiseSlider(v);
-                  setRaiseTo(String(v));
+                  setRaiseTo(chipAmountString(v));
                 }}
               />
               <Button
@@ -2262,7 +2286,10 @@ export function PokerTable({
           </div>
 
           <div className="felt-brand-center">
-            <div className="brand-name">{brandName}</div>
+            <div className="brand-name">{feltBrandName}</div>
+            {feltBrandFooter ? (
+              <div className="brand-footer">{feltBrandFooter}</div>
+            ) : null}
             <div className="brand-table">{tableName}</div>
             <div className="brand-blinds" aria-label="Current blinds">
               <span>
@@ -2365,6 +2392,7 @@ export function PokerTable({
                 <PlayerAvatar
                   userId={primaryWinner.userId}
                   name={nameFor(primaryWinner.userId)}
+                  avatarUrl={players.find((p) => p.userId === primaryWinner.userId)?.user.avatarUrl}
                   size="lg"
                 />
               </div>
@@ -2579,7 +2607,12 @@ export function PokerTable({
                     {seatChat.text}
                   </div>
                 ) : null}
-                <PlayerAvatar userId={seat.userId} name={displayName} size="md" />
+                <PlayerAvatar
+                  userId={seat.userId}
+                  name={displayName}
+                  avatarUrl={players.find((p) => p.userId === seat.userId)?.user.avatarUrl}
+                  size="md"
+                />
                 {isDealer && (
                   <span
                     className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-[var(--gold)] text-[10px] font-bold text-[#1a1205] shadow"

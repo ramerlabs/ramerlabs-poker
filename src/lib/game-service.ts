@@ -35,6 +35,8 @@ export async function getPlatformSettings() {
       houseBalances: {},
       globalCurrency: "USD",
       ablyEnabled: true,
+      siteName: "RamerLabs",
+      tableFooter: "RamerLabs Poker",
     },
   });
 }

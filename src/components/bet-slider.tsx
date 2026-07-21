@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, type PointerEvent } from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatChips } from "@/lib/utils";
 
 type BetSliderProps = {
   min: number;
@@ -52,7 +52,7 @@ export function BetSlider({
     <div className={cn("bet-slider", disabled && "is-disabled", className)}>
       <div className="bet-slider-head">
         <span className="bet-slider-label">Bet / raise to</span>
-        <span className="bet-slider-value">{value.toLocaleString()}</span>
+        <span className="bet-slider-value">{formatChips(value)}</span>
       </div>
       <div
         ref={trackRef}
@@ -69,8 +69,8 @@ export function BetSlider({
         <div className="bet-slider-thumb" style={{ left: `${pct}%` }} />
       </div>
       <div className="bet-slider-range">
-        <span>{min.toLocaleString()}</span>
-        <span>{max.toLocaleString()}</span>
+        <span>{formatChips(min)}</span>
+        <span>{formatChips(max)}</span>
       </div>
     </div>
   );

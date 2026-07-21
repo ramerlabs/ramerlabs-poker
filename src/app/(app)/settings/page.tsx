@@ -1,17 +1,58 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Button, Input, Label, Panel } from "@/components/ui";
+import { PlayerAvatar } from "@/components/player-avatar";
 import { useToast } from "@/components/toast-provider";
 
 type TwoFaStatus = { enabled: boolean; email?: string };
+
+function readImageAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Could not read image"));
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Shrink large uploads so they fit the server limit. */
+async function compressAvatar(file: File): Promise<string> {
+  const raw = await readImageAsDataUrl(file);
+  if (file.size <= 120_000) return raw;
+
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const max = 256;
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(raw);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = () => reject(new Error("Invalid image"));
+    img.src = raw;
+  });
+}
 
 export default function SettingsPage() {
   const toast = useToast();
   const { data: session, update } = useSession();
   const [name, setName] = useState(session?.user?.name ?? "");
   const [nameBusy, setNameBusy] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -33,13 +74,64 @@ export default function SettingsPage() {
     setTwoFa(data);
   }, []);
 
+  const refreshProfile = useCallback(async () => {
+    const res = await fetch("/api/profile", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    setAvatarUrl(data.user?.avatarUrl ?? null);
+    if (data.user?.name) setName(data.user.name);
+  }, []);
+
   useEffect(() => {
     setName(session?.user?.name ?? "");
   }, [session?.user?.name]);
 
   useEffect(() => {
     void refreshTwoFa();
-  }, [refreshTwoFa]);
+    void refreshProfile();
+  }, [refreshTwoFa, refreshProfile]);
+
+  async function uploadAvatar(file: File) {
+    setAvatarBusy(true);
+    try {
+      const dataUrl = await compressAvatar(file);
+      const res = await fetch("/api/profile/avatar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avatarUrl: dataUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Could not upload avatar");
+        return;
+      }
+      setAvatarUrl(data.user?.avatarUrl ?? dataUrl);
+      toast.success(data.message || "Avatar updated");
+    } catch {
+      toast.error("Could not upload avatar");
+    } finally {
+      setAvatarBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function removeAvatar() {
+    setAvatarBusy(true);
+    try {
+      const res = await fetch("/api/profile/avatar", { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Could not remove avatar");
+        return;
+      }
+      setAvatarUrl(null);
+      toast.success(data.message || "Avatar removed");
+    } catch {
+      toast.error("Could not remove avatar");
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
 
   async function saveName(e: FormEvent) {
     e.preventDefault();
@@ -196,6 +288,46 @@ export default function SettingsPage() {
             {nameBusy ? "Saving…" : "Save name"}
           </Button>
         </form>
+      </Panel>
+
+      <Panel className="p-6">
+        <h2 className="text-lg font-semibold text-[var(--text)]">Table avatar</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">
+          Your photo appears on your seat at the poker table. Square images work best.
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-4">
+          <PlayerAvatar
+            userId={session?.user?.id ?? "me"}
+            name={name || session?.user?.email || "You"}
+            avatarUrl={avatarUrl}
+            size="lg"
+            className="!h-20 !w-20"
+          />
+          <div className="flex flex-wrap gap-2">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void uploadAvatar(file);
+              }}
+            />
+            <Button
+              type="button"
+              disabled={avatarBusy}
+              onClick={() => fileRef.current?.click()}
+            >
+              {avatarBusy ? "Uploading…" : avatarUrl ? "Change photo" : "Upload photo"}
+            </Button>
+            {avatarUrl ? (
+              <Button type="button" variant="ghost" disabled={avatarBusy} onClick={() => void removeAvatar()}>
+                Remove
+              </Button>
+            ) : null}
+          </div>
+        </div>
       </Panel>
 
       <Panel className="p-6">

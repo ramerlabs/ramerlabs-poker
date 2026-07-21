@@ -37,7 +37,7 @@ type RoomPayload = {
       seat: number;
       stack: number;
       isBot?: boolean;
-      user: { id: string; name: string | null; email: string };
+      user: { id: string; name: string | null; email: string; avatarUrl?: string | null };
     }[];
     waitlist: {
       userId: string;
@@ -377,6 +377,7 @@ export default function RoomDetailPage() {
       roomId={data.room.id}
       tableName={data.room.name}
       brandName={data.branding?.siteName ?? "RamerLabs"}
+      brandFooter={data.branding?.tableFooter ?? "RamerLabs Poker"}
       isCreator={data.me.userId === data.room.creatorId}
       initialState={data.game.state}
       players={data.room.players}

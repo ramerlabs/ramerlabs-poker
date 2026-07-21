@@ -24,6 +24,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     null,
   );
   const [isClubOwner, setIsClubOwner] = useState(false);
+  const [isClubMember, setIsClubMember] = useState(false);
+  const showClubNav = isClubOwner || isClubMember;
 
   useEffect(() => {
     let active = true;
@@ -45,10 +47,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         if (!active) return;
-        setIsClubOwner(Boolean(json?.club));
+        if (json?.club) {
+          setIsClubOwner(true);
+          setIsClubMember(false);
+          return;
+        }
+        setIsClubOwner(false);
+        return fetch("/api/club/member")
+          .then((r) => (active ? r.ok : false))
+          .then((ok) => {
+            if (active) setIsClubMember(Boolean(ok));
+          });
       })
       .catch(() => {
-        if (active) setIsClubOwner(false);
+        if (active) {
+          setIsClubOwner(false);
+          setIsClubMember(false);
+        }
       });
     window.addEventListener("rl-wallet-refresh", loadWallet);
     return () => {
@@ -96,7 +111,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Link>
               );
             })}
-            {isClubOwner && (
+            {showClubNav && (
               <Link
                 href="/club"
                 className={cn(
@@ -174,7 +189,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
           );
         })}
-        {isClubOwner && (
+        {showClubNav && (
           <Link
             href="/club"
             className={cn(

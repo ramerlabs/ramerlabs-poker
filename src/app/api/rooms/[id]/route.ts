@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { toNumber } from "@/lib/utils";
-import { getPublicGameState, getPlatformSettings } from "@/lib/game-service";
+import { getPublicGameState } from "@/lib/game-service";
+import { getPublicBranding } from "@/lib/branding";
 import { isBotUserId } from "@/lib/poker/bot";
 import { purgeStalePlayers } from "@/lib/table-roster";
 import { getRecentTableChats } from "@/lib/table-chat";
@@ -14,12 +15,12 @@ type Params = { params: Promise<{ id: string }> };
 
 const roomInclude = {
   players: {
-    include: { user: { select: { id: true, name: true, email: true } } },
+    include: { user: { select: { id: true, name: true, email: true, avatarUrl: true } } },
     orderBy: { seat: "asc" as const },
   },
   waitlist: {
     orderBy: { createdAt: "asc" as const },
-    include: { user: { select: { id: true, name: true, email: true } } },
+    include: { user: { select: { id: true, name: true, email: true, avatarUrl: true } } },
   },
   creator: { select: { id: true, name: true, email: true } },
   club: {
@@ -117,14 +118,7 @@ export async function GET(req: Request, { params }: Params) {
         },
       });
 
-  // Branding — only fetch on full loads to avoid slowing tight polling
-  const branding = light
-    ? null
-    : await getPlatformSettings().then((s) => ({
-        siteName: s.siteName ?? "RamerLabs",
-        tableFooter: s.tableFooter ?? "RamerLabs Poker",
-        logoUrl: s.logoUrl ?? null,
-      }));
+  const branding = await getPublicBranding();
 
   let walletBalance = 0;
   let walletSource: "club" | "system" = "system";
@@ -228,7 +222,7 @@ export async function GET(req: Request, { params }: Params) {
         },
     game,
     chats,
-    ...(branding ? { branding } : {}),
+    branding,
   }, {
     headers: {
       "Cache-Control": "no-store, no-cache, must-revalidate",

@@ -86,6 +86,8 @@ model User {
   id                String         @id @default(cuid())
   email             String         @unique
   name              String?
+  /// Data URL or HTTPS URL for profile photo (shown at the table).
+  avatarUrl         String?
   passwordHash      String
   role              UserRole       @default(USER)
   creditsBalance    Decimal        @default(1000) @db.Decimal(18, 2)
