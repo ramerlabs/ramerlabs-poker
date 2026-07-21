@@ -1,7 +1,6 @@
 "use client";
 
 import { THROWABLE_CATALOG, type ThrowableItem } from "@/lib/table-reactions";
-import { cn } from "@/lib/utils";
 
 export type ReactionMenuTarget = {
   userId: string;
@@ -22,9 +21,6 @@ export function SeatReactionMenu({
   onPick: (item: ThrowableItem) => void;
   onClose: () => void;
 }) {
-  const anchorTop = Number.parseFloat(target.top);
-  const placeBelow = anchorTop < 42;
-
   return (
     <>
       <button
@@ -34,9 +30,9 @@ export function SeatReactionMenu({
         onClick={onClose}
       />
       <div
-        className={cn("seat-reaction-menu", placeBelow ? "is-below" : "is-above")}
-        style={{ left: target.left, top: target.top }}
+        className="seat-reaction-menu"
         role="dialog"
+        aria-modal="true"
         aria-label={`Throw at ${target.name}`}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}

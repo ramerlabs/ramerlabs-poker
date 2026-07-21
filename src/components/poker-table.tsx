@@ -2210,15 +2210,6 @@ export function PokerTable({
 
         <TableReactionFx reactions={activeReactions} layout={seatLayout} />
 
-        {reactionMenu ? (
-          <SeatReactionMenu
-            target={reactionMenu}
-            busy={reactionBusy}
-            onClose={() => setReactionMenu(null)}
-            onPick={(item) => void throwReaction(reactionMenu.userId, item)}
-          />
-        ) : null}
-
         {/* Winner celebration: fireworks then auto-fade */}
         {showWinner && primaryWinner && (
           <>
@@ -2540,6 +2531,14 @@ export function PokerTable({
         </div>
       </div>
 
+      {reactionMenu ? (
+        <SeatReactionMenu
+          target={reactionMenu}
+          busy={reactionBusy}
+          onClose={() => setReactionMenu(null)}
+          onPick={(item) => void throwReaction(reactionMenu.userId, item)}
+        />
+      ) : null}
 
       {stackPrompt ? (
         <div className="buyin-overlay stack-prompt-overlay" role="presentation">
