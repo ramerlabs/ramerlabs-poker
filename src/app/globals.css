@@ -1447,6 +1447,17 @@ a {
   color: rgba(232, 238, 247, 0.78);
 }
 
+.buyin-error {
+  margin: -0.35rem 0 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid rgba(179, 58, 74, 0.55);
+  background: rgba(179, 58, 74, 0.16);
+  color: #f0c4ca;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
 .buyin-presets {
   display: flex;
   flex-wrap: wrap;
@@ -3008,6 +3019,21 @@ body.table-play-mode .app-mobile-nav {
   }
 }
 
+.table-reaction-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.table-reaction-fx {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
 .felt-reaction-banner {
   position: absolute;
   left: 50%;
@@ -3254,6 +3280,12 @@ body.table-play-mode .app-mobile-nav {
   background:
     radial-gradient(circle, rgba(80, 80, 90, 0.95) 0%, rgba(255, 120, 40, 0.35) 40%, transparent 72%);
   box-shadow: 0 0 24px rgba(255, 100, 40, 0.45);
+}
+
+.table-throw-burst.is-haha {
+  background:
+    radial-gradient(circle, rgba(255, 230, 120, 0.95) 0%, rgba(255, 180, 60, 0.28) 45%, transparent 72%);
+  box-shadow: 0 0 20px rgba(255, 210, 80, 0.45);
 }
 
 @media (orientation: portrait) and (max-width: 768px) {

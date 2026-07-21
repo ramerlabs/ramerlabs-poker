@@ -24,6 +24,7 @@ const BURST_PARTICLES: Partial<Record<ThrowableItem, string[]>> = {
   lightning: ["⚡", "✨", "💥"],
   kiss: ["💋", "💖", "✨"],
   bomb: ["💣", "💥", "🔥"],
+  haha: ["😂", "🤣", "😆", "✨"],
 };
 
 export function TableReactionFx({

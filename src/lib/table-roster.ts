@@ -556,7 +556,8 @@ async function cashOutSeatedPlayer(roomId: string, userId: string) {
   await saveTableState(roomId, next);
 }
 
-/** Add chips from wallet to an already-seated player (between hands only). */
+/** Add chips from wallet to an already-seated player (between hands only).
+ *  System tables debit system credits/cash; club tables debit club wallet. */
 export async function rebuySeatedPlayer(
   roomId: string,
   userId: string,
@@ -564,7 +565,17 @@ export async function rebuySeatedPlayer(
 ) {
   if (isBotUserId(userId)) throw new Error("Bots rebuy automatically");
 
-  const room = await prisma.room.findUnique({ where: { id: roomId } });
+  const room = await prisma.room.findUnique({
+    where: { id: roomId },
+    select: {
+      id: true,
+      status: true,
+      type: true,
+      clubId: true,
+      buyIn: true,
+      currency: true,
+    },
+  });
   if (!room || room.status === "CLOSED") throw new Error("Room not found");
 
   const player = await prisma.roomPlayer.findUnique({
@@ -574,28 +585,39 @@ export async function rebuySeatedPlayer(
 
   const state = await ensureGameState(roomId);
   if (state.street !== "waiting" && state.street !== "complete") {
-    throw new Error("Add chips between hands only");
+    throw new Error("Add chips between hands only — wait for this hand to finish");
   }
 
   const wallet = await resolvePlayWallet(room, userId);
+  const walletLabel = wallet.source === "club" ? "club credits" : "system credits";
   const minBuyIn = toNumber(room.buyIn);
   const amount = Math.round(Number(buyInAmount) * 100) / 100;
   if (!Number.isFinite(amount) || amount < minBuyIn) {
-    throw new Error(`Buy-in must be at least ${minBuyIn}`);
+    throw new Error(`Buy-in must be at least ${minBuyIn} ${room.currency}`);
   }
   if (amount > wallet.balance) {
     throw new Error(
-      `Insufficient ${wallet.source === "club" ? "club" : "system"} balance (have ${wallet.balance})`,
+      `Insufficient ${walletLabel} (have ${wallet.balance.toLocaleString()} ${room.currency})`,
     );
   }
 
-  await prisma.$transaction(async (tx) => {
-    await debitPlayWallet(wallet, userId, amount, tx);
-    await tx.roomPlayer.update({
-      where: { id: player.id },
-      data: { stack: { increment: new Prisma.Decimal(amount) } },
+  try {
+    await prisma.$transaction(async (tx) => {
+      await debitPlayWallet(wallet, userId, amount, tx);
+      await tx.roomPlayer.update({
+        where: { id: player.id },
+        data: { stack: { increment: new Prisma.Decimal(amount) } },
+      });
     });
-  });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "";
+    if (msg === "INSUFFICIENT" || /insufficient/i.test(msg)) {
+      throw new Error(
+        `Insufficient ${walletLabel} (have ${wallet.balance.toLocaleString()} ${room.currency})`,
+      );
+    }
+    throw error;
+  }
 
   const refreshed = await prisma.roomPlayer.findUnique({
     where: { id: player.id },
@@ -611,7 +633,13 @@ export async function rebuySeatedPlayer(
   }
   await saveTableState(roomId, next);
 
-  return { amount, newStack, currency: room.currency };
+  return {
+    amount,
+    newStack,
+    currency: room.currency,
+    walletSource: wallet.source,
+    walletBalance: Math.max(0, wallet.balance - amount),
+  };
 }
 
 export async function leaveTable(roomId: string, userId: string) {

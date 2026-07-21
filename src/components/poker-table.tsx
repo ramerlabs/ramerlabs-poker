@@ -26,6 +26,7 @@ import {
 import { getHandHints } from "@/lib/poker/hand-hints";
 import { cn, readJson } from "@/lib/utils";
 import {
+  REACTION_IMPACT_MS,
   REACTION_VISIBLE_MS,
   type TableReactionEvent,
   type ThrowableItem,
@@ -306,6 +307,7 @@ export function PokerTable({
   minBuyIn = 0,
   currency = "CREDITS",
   walletBalance = 0,
+  walletSource = "system",
   chatEnabled = true,
   topUpHref = "/wallet",
   topUpLabel = "Top up wallet",
@@ -331,8 +333,10 @@ export function PokerTable({
   /** Minimum buy-in required to sit (room.buyIn) */
   minBuyIn?: number;
   currency?: string;
-  /** Viewer's wallet balance for this room's currency */
+  /** Viewer's wallet balance for this room (system or club) */
   walletBalance?: number;
+  /** System tables use system credits; club tables use club credits */
+  walletSource?: "system" | "club";
   /** Whether table chat is enabled (admin toggle) */
   chatEnabled?: boolean;
   /** Where to send players who need more off-table balance */
@@ -404,7 +408,9 @@ export function PokerTable({
   const [buyInSeat, setBuyInSeat] = useState<number | null>(null);
   const [buyInMode, setBuyInMode] = useState<"sit" | "rebuy">("sit");
   const [buyInAmount, setBuyInAmount] = useState("");
+  const [buyInError, setBuyInError] = useState<string | null>(null);
   const [walletLeft, setWalletLeft] = useState(walletBalance);
+  const [walletKind, setWalletKind] = useState<"system" | "club">(walletSource);
   const [chatExpanded, setChatExpanded] = useState(false);
   const [chatUnread, setChatUnread] = useState(0);
   const [stackPrompt, setStackPrompt] = useState<"rebuy" | "topup" | null>(null);
@@ -448,6 +454,19 @@ export function PokerTable({
   useEffect(() => {
     setWalletLeft(walletBalance);
   }, [walletBalance]);
+
+  useEffect(() => {
+    setWalletKind(walletSource);
+  }, [walletSource]);
+
+  const walletLabel =
+    walletKind === "club"
+      ? currency === "CREDITS"
+        ? "Club credits"
+        : `Club ${currency}`
+      : currency === "CREDITS"
+        ? "System credits"
+        : `System ${currency}`;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -674,7 +693,7 @@ export function PokerTable({
   const ingestReaction = useCallback((event: TableReactionEvent) => {
     if (!event?.id || seenReactionIds.current.has(event.id)) return;
     seenReactionIds.current.add(event.id);
-    playReactionSfx(event.item);
+    playReactionSfx(event.item, REACTION_IMPACT_MS);
     const expiresAt = Date.now() + REACTION_VISIBLE_MS;
     setActiveReactions((prev) => {
       if (prev.some((r) => r.id === event.id)) return prev;
@@ -1560,6 +1579,7 @@ export function PokerTable({
     setBuyInMode("sit");
     setBuyInSeat(seatIndex);
     setBuyInAmount(String(floor));
+    setBuyInError(null);
     setError(null);
   }
 
@@ -1571,6 +1591,7 @@ export function PokerTable({
     setBuyInMode("rebuy");
     setBuyInSeat(null);
     setBuyInAmount(String(minBuyIn));
+    setBuyInError(null);
     setError(null);
   }
 
@@ -1579,10 +1600,11 @@ export function PokerTable({
     setStackPrompt(null);
   }
 
-  function closeBuyInModal() {
-    if (busy) return;
+  function closeBuyInModal(force = false) {
+    if (busy && !force) return;
     setBuyInSeat(null);
     setBuyInMode("sit");
+    setBuyInError(null);
   }
 
   function toggleChatPanel() {
@@ -1600,16 +1622,19 @@ export function PokerTable({
     const floor = Math.max(0, minBuyIn);
     const amount = Math.round(Number(buyInAmount) * 100) / 100;
     if (!Number.isFinite(amount) || amount < floor) {
-      setError(`Buy-in must be at least ${floor} ${currency}`);
+      setBuyInError(`Buy-in must be at least ${floor.toLocaleString()} ${currency}`);
       return;
     }
     if (amount > walletLeft) {
-      setError(`Insufficient balance (have ${walletLeft})`);
+      setBuyInError(
+        `Insufficient ${walletLabel.toLowerCase()} (have ${walletLeft.toLocaleString()} ${currency})`,
+      );
       return;
     }
 
     if (buyInMode === "rebuy") {
       setBusy(true);
+      setBuyInError(null);
       setError(null);
       setHint(null);
       try {
@@ -1621,27 +1646,35 @@ export function PokerTable({
         const json = await readJson<{
           error?: string;
           newStack?: number;
+          walletBalance?: number;
+          walletSource?: "system" | "club";
         }>(res);
         if (!res.ok) throw new Error(json.error || "Could not add chips");
-        closeBuyInModal();
+        if (typeof json.walletBalance === "number") setWalletLeft(json.walletBalance);
+        else setWalletLeft((w) => Math.max(0, w - amount));
+        if (json.walletSource) setWalletKind(json.walletSource);
         setBusy(false);
-        const msg = `Added ${amount} ${currency} — stack is now ${(json.newStack ?? mySeat?.stack ?? 0).toLocaleString()}.`;
+        closeBuyInModal(true);
+        const msg = `Added ${amount.toLocaleString()} ${currency} from ${walletLabel.toLowerCase()} — stack is now ${(json.newStack ?? mySeat?.stack ?? 0).toLocaleString()}.`;
         setHint(msg);
         onSitResult?.(msg);
-        setWalletLeft((w) => Math.max(0, w - amount));
         stackPromptDismissedHand.current = state.handNumber;
         void refresh({ tick: false, force: true }).then(() => {
           onPlayersChanged?.();
         });
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not add chips");
+        const message = err instanceof Error ? err.message : "Could not add chips";
+        setBuyInError(message);
+        setError(message);
         setBusy(false);
+        playSfx("timeout");
       }
       return;
     }
 
     const seatIndex = buyInSeat!;
     setBusy(true);
+    setBuyInError(null);
     setError(null);
     setHint(null);
     try {
@@ -1664,8 +1697,8 @@ export function PokerTable({
         ? `You sat at seat ${seatIndex + 1} with ${amount} ${currency}.`
         : json.message ||
           `Seat ${seatIndex + 1} reserved — you join when this hand ends.`;
-      closeBuyInModal();
       setBusy(false);
+      closeBuyInModal(true);
       setHint(msg);
       onSitResult?.(msg);
       setWalletLeft((w) => Math.max(0, w - amount));
@@ -1673,8 +1706,11 @@ export function PokerTable({
         onPlayersChanged?.();
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not sit");
+      const message = err instanceof Error ? err.message : "Could not sit";
+      setBuyInError(message);
+      setError(message);
       setBusy(false);
+      playSfx("timeout");
     }
   }
 
@@ -2208,8 +2244,6 @@ export function PokerTable({
           />
         ))}
 
-        <TableReactionFx reactions={activeReactions} layout={seatLayout} />
-
         {/* Winner celebration: fireworks then auto-fade */}
         {showWinner && primaryWinner && (
           <>
@@ -2318,6 +2352,9 @@ export function PokerTable({
         ))}
 
         {/* Seats overlay matches felt size; overflow visible so chips are not clipped */}
+        </div>
+        <div className="table-reaction-layer pointer-events-none absolute inset-0 z-25 overflow-visible">
+          <TableReactionFx reactions={activeReactions} layout={seatLayout} />
         </div>
         <div className="pointer-events-none absolute inset-0 z-20 overflow-visible">
         {seatSlots.map((seatIndex) => {
@@ -2609,7 +2646,7 @@ export function PokerTable({
               {buyInMode === "rebuy" ? "Add chips to your stack" : "Choose buy-in"}
             </h2>
             <p className="buyin-copy">
-              Minimum {minBuyIn.toLocaleString()} {currency}. Wallet balance{" "}
+              Minimum {minBuyIn.toLocaleString()} {currency}. {walletLabel}:{" "}
               {walletLeft.toLocaleString()} {currency}.
               {buyInMode === "rebuy" && mySeat ? (
                 <>
@@ -2618,6 +2655,11 @@ export function PokerTable({
                 </>
               ) : null}
             </p>
+            {buyInError ? (
+              <div className="buyin-error" role="alert">
+                {buyInError}
+              </div>
+            ) : null}
             <div className="buyin-presets">
               <button
                 type="button"
@@ -2662,7 +2704,7 @@ export function PokerTable({
               autoFocus
             />
             <div className="buyin-actions">
-              <Button type="button" variant="ghost" disabled={busy} onClick={closeBuyInModal}>
+              <Button type="button" variant="ghost" disabled={busy} onClick={() => closeBuyInModal()}>
                 Cancel
               </Button>
               <Button type="submit" disabled={busy || walletLeft < minBuyIn}>

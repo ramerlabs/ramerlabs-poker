@@ -127,7 +127,7 @@ function noiseBurst(duration = 0.08, gain = 0.16, filterHz = 1600) {
   src.start();
 }
 
-function playReactionTone(item: ThrowableItem) {
+function playReactionImpactTone(item: ThrowableItem) {
   switch (item) {
     case "ice":
       tone(1200, 0.05, "sine", 0.2);
@@ -194,10 +194,19 @@ function playReactionTone(item: ThrowableItem) {
       tone(740, 0.1, "sine", 0.14, 0.1);
       break;
     case "bomb":
-      tone(90, 0.32, "sine", 0.3);
-      noiseBurst(0.22, 0.32, 300);
-      tone(60, 0.38, "sine", 0.24, 0.12);
-      noiseBurst(0.14, 0.2, 900);
+      tone(55, 0.06, "sine", 0.34);
+      noiseBurst(0.05, 0.42, 180);
+      tone(38, 0.5, "sine", 0.38, 0.06);
+      noiseBurst(0.32, 0.36, 260);
+      tone(28, 0.55, "sine", 0.3, 0.14);
+      noiseBurst(0.22, 0.24, 720);
+      break;
+    case "haha":
+      tone(420, 0.07, "triangle", 0.2);
+      tone(520, 0.07, "triangle", 0.22, 0.11);
+      tone(440, 0.07, "triangle", 0.2, 0.22);
+      tone(580, 0.08, "triangle", 0.22, 0.33);
+      tone(500, 0.1, "sine", 0.18, 0.44);
       break;
     default:
       tone(640, 0.08, "triangle", 0.18);
@@ -318,16 +327,18 @@ export function playSfx(name: Sfx) {
   })();
 }
 
-/** Unique throw sound per reaction item — plays for everyone when a throw lands. */
-export function playReactionSfx(item: ThrowableItem) {
+/** Unique impact sound per reaction item — plays when the throw lands on target. */
+export function playReactionSfx(item: ThrowableItem, delayMs = 0) {
   if (muted || typeof window === "undefined") return;
-  void (async () => {
-    await unlockAudio();
-    if (muted) return;
-    const audio = getCtx();
-    if (!audio || audio.state !== "running") return;
-    playReactionTone(item);
-  })();
+  window.setTimeout(() => {
+    void (async () => {
+      await unlockAudio();
+      if (muted) return;
+      const audio = getCtx();
+      if (!audio || audio.state !== "running") return;
+      playReactionImpactTone(item);
+    })();
+  }, Math.max(0, delayMs));
 }
 
 /** Attach once: unlock on any pointer/key so SFX work without hunting the mute button. */

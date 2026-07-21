@@ -54,6 +54,7 @@ type RoomPayload = {
     waitPosition: number | null;
     preferredSeat: number | null;
     walletBalance?: number;
+    walletSource?: "system" | "club";
     currency?: string;
     minBuyIn?: number;
   };
@@ -374,6 +375,7 @@ export default function RoomDetailPage() {
       minBuyIn={data.me.minBuyIn ?? data.room.buyIn}
       currency={data.me.currency ?? data.room.currency}
       walletBalance={data.me.walletBalance ?? 0}
+      walletSource={data.me.walletSource ?? (data.room.club ? "club" : "system")}
       chatEnabled={data.room.chatEnabled}
       topUpHref={
         data.room.club

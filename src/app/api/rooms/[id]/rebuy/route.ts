@@ -31,7 +31,14 @@ export async function POST(req: Request, { params }: Params) {
       reason: "rebuy",
       userId: authResult.userId,
     });
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({
+      ok: true,
+      amount: result.amount,
+      newStack: result.newStack,
+      currency: result.currency,
+      walletSource: result.walletSource,
+      walletBalance: result.walletBalance,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not add chips";
     return NextResponse.json({ error: message }, { status: 400 });

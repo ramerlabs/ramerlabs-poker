@@ -14,6 +14,7 @@ export const THROWABLE_ITEMS = [
   "lightning",
   "kiss",
   "bomb",
+  "haha",
 ] as const;
 export type ThrowableItem = (typeof THROWABLE_ITEMS)[number];
 
@@ -32,10 +33,13 @@ export const THROWABLE_CATALOG: Record<
   lightning: { emoji: "⚡", label: "Lightning", className: "is-lightning" },
   kiss: { emoji: "💋", label: "Kiss", className: "is-kiss" },
   bomb: { emoji: "💣", label: "Bomb", className: "is-bomb" },
+  haha: { emoji: "😂", label: "Haha", className: "is-haha" },
 };
 
 export const REACTION_COOLDOWN_MS = 3_500;
 export const REACTION_VISIBLE_MS = 4_200;
+/** When the projectile reaches the target and the burst plays (ms). */
+export const REACTION_IMPACT_MS = 550;
 
 export type TableReactionEvent = {
   id: string;
