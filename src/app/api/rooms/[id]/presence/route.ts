@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/session";
+import { assertRoomAccess } from "@/lib/room-access";
 import { touchPresence } from "@/lib/table-roster";
 
 type Params = { params: Promise<{ id: string }> };
@@ -9,7 +10,12 @@ export async function POST(_req: Request, { params }: Params) {
   const authResult = await requireUser();
   if ("error" in authResult) return authResult.error;
 
-  await touchPresence(id, authResult.userId);
-  // Purge is throttled inside purgeStalePlayers / roster — keep presence light
-  return NextResponse.json({ ok: true });
+  try {
+    await assertRoomAccess(id, authResult);
+    await touchPresence(id, authResult.userId);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Forbidden";
+    return NextResponse.json({ error: message }, { status: 403 });
+  }
 }

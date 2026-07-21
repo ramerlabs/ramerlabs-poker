@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { licenseServerUrl } from "@/lib/rlm-internal";
+import { isProduction } from "@/lib/env";
 
 export const PRODUCT_SLUG = "ramerlabs-poker";
 export const SITE_NAME = process.env.LICENSE_SITE_NAME || "RamerLabs Poker";
@@ -144,7 +145,12 @@ export async function getPublicLicenseStatus() {
         : "A valid license is required to use RamerLabs Poker. Buy a license at ramerlabs.com.",
     });
   } catch {
-    // Never 500 the gate — DB blips must not kick licensed domains offline
+    if (isProduction()) {
+      return publicStatus({
+        valid: false,
+        message: "Could not verify license status. Try again shortly.",
+      });
+    }
     return publicStatus({
       valid: true,
       message: "License check deferred.",

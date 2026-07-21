@@ -3,15 +3,25 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireLicense } from "@/lib/license";
+import { registrationEnabled } from "@/lib/env";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { newPasswordSchema, validateNewPassword } from "@/lib/password";
 
 const schema = z.object({
   email: z.string().email(),
-  password: z.string().min(6).max(72),
+  password: newPasswordSchema,
   name: z.string().min(1).max(64).optional(),
 });
 
 export async function POST(req: Request) {
+  const limited = enforceRateLimit(req, "auth-register", 8, 60 * 60_000);
+  if (limited) return limited;
+
   try {
+    if (!registrationEnabled()) {
+      return NextResponse.json({ error: "Registration is disabled on this site" }, { status: 403 });
+    }
+
     const license = await requireLicense();
     if (!license.ok) return license.error;
 
@@ -19,6 +29,11 @@ export async function POST(req: Request) {
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ error: "Invalid registration payload" }, { status: 400 });
+    }
+
+    const passwordError = validateNewPassword(parsed.data.password);
+    if (passwordError) {
+      return NextResponse.json({ error: passwordError }, { status: 400 });
     }
 
     const email = parsed.data.email.toLowerCase();

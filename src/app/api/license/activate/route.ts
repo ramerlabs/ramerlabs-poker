@@ -1,13 +1,24 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { activate } from "@/lib/license";
+import { activate, getCachedLicenseValid } from "@/lib/license";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { requireAdmin } from "@/lib/session";
 
 const schema = z.object({
   license_key: z.string().min(1).max(128),
 });
 
 export async function POST(req: Request) {
+  const limited = enforceRateLimit(req, "license-activate", 10, 60_000);
+  if (limited) return limited;
+
   try {
+    const alreadyLicensed = await getCachedLicenseValid();
+    if (alreadyLicensed) {
+      const admin = await requireAdmin();
+      if ("error" in admin) return admin.error;
+    }
+
     const body = await req.json();
     const parsed = schema.safeParse(body);
     if (!parsed.success) {

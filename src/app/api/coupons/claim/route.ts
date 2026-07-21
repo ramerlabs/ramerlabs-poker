@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { toNumber } from "@/lib/utils";
 
 const schema = z.object({
@@ -10,6 +11,9 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
+  const limited = enforceRateLimit(req, "coupon-claim", 20, 60 * 60_000);
+  if (limited) return limited;
+
   const authResult = await requireUser();
   if ("error" in authResult) return authResult.error;
 

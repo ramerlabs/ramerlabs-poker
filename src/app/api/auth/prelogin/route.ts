@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { loginPasswordSchema } from "@/lib/password";
 
 const schema = z.object({
   email: z.string().email(),
-  password: z.string().min(6).max(72),
+  password: loginPasswordSchema,
 });
 
 /**
@@ -13,6 +15,9 @@ const schema = z.object({
  * Returns { requires2fa: true } when the account has TOTP enabled.
  */
 export async function POST(req: Request) {
+  const limited = enforceRateLimit(req, "auth-prelogin", 20, 15 * 60_000);
+  if (limited) return limited;
+
   try {
     const parsed = schema.safeParse(await req.json());
     if (!parsed.success) {

@@ -8,7 +8,7 @@ const createSchema = z.object({
   subject: z.string().trim().min(3).max(120),
   body: z.string().trim().min(5).max(5000),
   category: z.enum(["ACCOUNT", "BILLING", "GAMEPLAY", "TECHNICAL", "OTHER"]),
-  priority: z.enum(["LOW", "NORMAL", "HIGH", "URGENT"]).default("NORMAL"),
+  priority: z.enum(["LOW", "NORMAL", "HIGH"]).default("NORMAL"),
 });
 
 export async function GET() {

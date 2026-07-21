@@ -1,13 +1,12 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
 import { TOTP, Secret } from "otpauth";
 import QRCode from "qrcode";
+import { getAuthSecret } from "@/lib/env";
 
 const ISSUER = "RamerLabs Poker";
 
 function encryptionKey(): Buffer {
-  return createHash("sha256")
-    .update(process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "dev-secret")
-    .digest();
+  return createHash("sha256").update(getAuthSecret()).digest();
 }
 
 /** Encrypt a TOTP secret for DB storage. */

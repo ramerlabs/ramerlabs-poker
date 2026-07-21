@@ -3,10 +3,11 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
+import { loginPasswordSchema, newPasswordSchema, validateNewPassword } from "@/lib/password";
 
 const schema = z.object({
-  currentPassword: z.string().min(6).max(72),
-  newPassword: z.string().min(6).max(72),
+  currentPassword: loginPasswordSchema,
+  newPassword: newPasswordSchema,
 });
 
 export async function POST(req: Request) {
@@ -19,6 +20,11 @@ export async function POST(req: Request) {
   }
 
   const { currentPassword, newPassword } = parsed.data;
+  const passwordError = validateNewPassword(newPassword);
+  if (passwordError) {
+    return NextResponse.json({ error: passwordError }, { status: 400 });
+  }
+
   if (currentPassword === newPassword) {
     return NextResponse.json(
       { error: "New password must be different from the current password" },

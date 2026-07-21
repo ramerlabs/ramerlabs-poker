@@ -4,6 +4,8 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { prisma } from "@/lib/prisma";
 import { getGlobalCurrencyConfig } from "@/lib/currency";
+import { paymentsMockEnabled } from "@/lib/env";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { requireUser } from "@/lib/session";
 import { toNumber } from "@/lib/utils";
 
@@ -14,6 +16,9 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
+  const limited = enforceRateLimit(req, "wallet-withdraw", 8, 60 * 60_000);
+  if (limited) return limited;
+
   const authResult = await requireUser();
   if ("error" in authResult) return authResult.error;
 
@@ -42,6 +47,43 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Insufficient real-money balance" }, { status: 400 });
   }
 
+  const mock = paymentsMockEnabled();
+  const metadata = {
+    mock,
+    destination: parsed.data.destination,
+  };
+
+  if (!mock) {
+    const [tx] = await prisma.$transaction([
+      prisma.transaction.create({
+        data: {
+          userId: user.id,
+          amount: new Prisma.Decimal(parsed.data.amount),
+          currency,
+          gateway: parsed.data.gateway,
+          type: "WITHDRAWAL",
+          status: "PENDING",
+          reference: `WD-${nanoid(10).toUpperCase()}`,
+          metadata,
+        },
+      }),
+      prisma.user.update({
+        where: { id: user.id },
+        data: {
+          realMoneyBalance: {
+            decrement: new Prisma.Decimal(parsed.data.amount),
+          },
+          currentCurrency: currency,
+        },
+      }),
+    ]);
+
+    return NextResponse.json({
+      transaction: { ...tx, amount: toNumber(tx.amount) },
+      message: `Withdrawal submitted for processing (${currency}).`,
+    });
+  }
+
   const [tx] = await prisma.$transaction([
     prisma.transaction.create({
       data: {
@@ -52,10 +94,7 @@ export async function POST(req: Request) {
         type: "WITHDRAWAL",
         status: "COMPLETED",
         reference: `WD-${nanoid(10).toUpperCase()}`,
-        metadata: {
-          mock: true,
-          destination: parsed.data.destination,
-        },
+        metadata,
       },
     }),
     prisma.user.update({

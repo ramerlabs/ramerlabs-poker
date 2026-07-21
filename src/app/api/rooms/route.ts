@@ -5,7 +5,7 @@ import { Prisma, RoomType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getOwnedClub } from "@/lib/club";
 import { getPlatformSettings, tickOpenRooms } from "@/lib/game-service";
-import { requireLicenseOptionalUser, requireUser } from "@/lib/session";
+import { requireUser } from "@/lib/session";
 import { toNumber } from "@/lib/utils";
 
 const inviteCode = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 8);
@@ -22,7 +22,7 @@ const createSchema = z.object({
 });
 
 export async function GET() {
-  const authResult = await requireLicenseOptionalUser();
+  const authResult = await requireUser();
   if ("error" in authResult) return authResult.error;
   const viewerId = authResult.userId;
   const isAdmin = authResult.role === "ADMIN";
@@ -35,12 +35,12 @@ export async function GET() {
     where: { status: { not: "CLOSED" } },
     include: {
       players: { select: { id: true, userId: true, seat: true } },
-      creator: { select: { id: true, name: true, email: true } },
+      creator: { select: { id: true, name: true } },
       club: {
         select: {
           id: true,
           name: true,
-          owner: { select: { name: true, email: true } },
+          owner: { select: { name: true } },
         },
       },
     },

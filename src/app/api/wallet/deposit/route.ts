@@ -4,6 +4,8 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { prisma } from "@/lib/prisma";
 import { getGlobalCurrencyConfig } from "@/lib/currency";
+import { paymentsMockEnabled } from "@/lib/env";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { requireUser } from "@/lib/session";
 import { toNumber } from "@/lib/utils";
 
@@ -16,6 +18,9 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
+  const limited = enforceRateLimit(req, "wallet-deposit", 12, 60 * 60_000);
+  if (limited) return limited;
+
   const authResult = await requireUser();
   if ("error" in authResult) return authResult.error;
 
@@ -49,6 +54,35 @@ export async function POST(req: Request) {
       ? parsed.data.reference
       : `GCASH-${nanoid(10).toUpperCase()}`;
 
+  const mock = paymentsMockEnabled();
+  const metadata = {
+    mock,
+    submittedReference: parsed.data.reference,
+    mobileNumber: parsed.data.mobileNumber ?? null,
+    usdtAddress: config.usdtAddress,
+    gcashMerchantId: config.gcashMerchantId,
+  };
+
+  if (!mock) {
+    const tx = await prisma.transaction.create({
+      data: {
+        userId: user.id,
+        amount: new Prisma.Decimal(parsed.data.amount),
+        currency,
+        gateway: parsed.data.gateway,
+        type: "DEPOSIT",
+        status: "PENDING",
+        reference: mockRef,
+        metadata,
+      },
+    });
+
+    return NextResponse.json({
+      transaction: { ...tx, amount: toNumber(tx.amount) },
+      message: `Deposit submitted for review (${currency}). Funds will appear after admin approval.`,
+    });
+  }
+
   const [tx] = await prisma.$transaction([
     prisma.transaction.create({
       data: {
@@ -59,13 +93,7 @@ export async function POST(req: Request) {
         type: "DEPOSIT",
         status: "COMPLETED",
         reference: mockRef,
-        metadata: {
-          mock: true,
-          submittedReference: parsed.data.reference,
-          mobileNumber: parsed.data.mobileNumber ?? null,
-          usdtAddress: config.usdtAddress,
-          gcashMerchantId: config.gcashMerchantId,
-        },
+        metadata,
       },
     }),
     prisma.user.update({
