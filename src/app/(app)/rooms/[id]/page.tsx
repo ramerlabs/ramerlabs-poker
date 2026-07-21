@@ -77,6 +77,7 @@ export default function RoomDetailPage() {
   const [isMobile, setIsMobile] = useState(false);
   const [tableOpen, setTableOpen] = useState(false);
   const [browserFs, setBrowserFs] = useState(false);
+  const [isLandscape, setIsLandscape] = useState(false);
   const connectedRef = useRef(false);
   const tableRootRef = useRef<HTMLDivElement>(null);
   const autoOpenedRef = useRef(false);
@@ -116,6 +117,15 @@ export default function RoomDetailPage() {
     if (typeof window === "undefined") return;
     const mq = window.matchMedia("(max-width: 768px)");
     const sync = () => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(orientation: landscape)");
+    const sync = () => setIsLandscape(mq.matches);
     sync();
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
@@ -367,6 +377,7 @@ export default function RoomDetailPage() {
       roomId={data.room.id}
       tableName={data.room.name}
       brandName={data.branding?.siteName ?? "RamerLabs"}
+      isCreator={data.me.userId === data.room.creatorId}
       initialState={data.game.state}
       players={data.room.players}
       maxPlayers={data.room.maxPlayers}
@@ -559,54 +570,106 @@ export default function RoomDetailPage() {
           aria-hidden={!tableOpen}
         >
           {tableOpen && (
-            <div className="table-fullscreen-bar">
-              <button
-                type="button"
-                className="table-fs-btn"
-                onClick={closeTable}
-                aria-label="Close table"
-              >
-                <X className="h-5 w-5" />
-                <span>Close</span>
-              </button>
-              <div className="table-fs-title">{data.room.name}</div>
-              <div className="table-fs-actions">
-                {seated && (
-                  <>
+            <>
+              {/* Landscape: hide top bar, show floating action buttons */}
+              {isLandscape ? (
+                <div className="table-landscape-fabs">
+                  <button
+                    type="button"
+                    className="table-fab table-fab-exit"
+                    onClick={closeTable}
+                    aria-label="Exit table"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                  {seated && (
+                    <>
+                      <button
+                        type="button"
+                        className="table-fab"
+                        disabled={busy}
+                        onClick={() => void standUp()}
+                        aria-label="Stand up"
+                      >
+                        <Spade className="h-4 w-4" />
+                        <span>Stand</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="table-fab table-fab-danger"
+                        disabled={busy}
+                        onClick={() => void leaveTable()}
+                        aria-label="Leave table"
+                      >
+                        <X className="h-4 w-4" />
+                        <span>Leave</span>
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    className="table-fab"
+                    onClick={() => {
+                      if (browserFs) exitBrowserFullscreen();
+                      else void enterBrowserFullscreen();
+                    }}
+                    aria-label={browserFs ? "Exit fullscreen" : "Fullscreen"}
+                  >
+                    {browserFs ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                  </button>
+                </div>
+              ) : (
+                /* Portrait: keep top bar */
+                <div className="table-fullscreen-bar">
+                  <button
+                    type="button"
+                    className="table-fs-btn"
+                    onClick={closeTable}
+                    aria-label="Close table"
+                  >
+                    <X className="h-5 w-5" />
+                    <span>Close</span>
+                  </button>
+                  <div className="table-fs-title">{data.room.name}</div>
+                  <div className="table-fs-actions">
+                    {seated && (
+                      <>
+                        <button
+                          type="button"
+                          className="table-fs-btn"
+                          disabled={busy}
+                          onClick={() => void standUp()}
+                        >
+                          Stand
+                        </button>
+                        <button
+                          type="button"
+                          className="table-fs-btn is-danger"
+                          disabled={busy}
+                          onClick={() => void leaveTable()}
+                        >
+                          Leave
+                        </button>
+                      </>
+                    )}
                     <button
                       type="button"
                       className="table-fs-btn"
-                      disabled={busy}
-                      onClick={() => void standUp()}
+                      onClick={() => {
+                        if (browserFs) exitBrowserFullscreen();
+                        else void enterBrowserFullscreen();
+                      }}
+                      aria-label={browserFs ? "Exit fullscreen" : "Enter fullscreen"}
                     >
-                      Stand
+                      {browserFs ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+                      <span>{browserFs ? "Exit" : "Full"}</span>
                     </button>
-                    <button
-                      type="button"
-                      className="table-fs-btn is-danger"
-                      disabled={busy}
-                      onClick={() => void leaveTable()}
-                    >
-                      Leave
-                    </button>
-                  </>
-                )}
-                <button
-                  type="button"
-                  className="table-fs-btn"
-                  onClick={() => {
-                    if (browserFs) exitBrowserFullscreen();
-                    else void enterBrowserFullscreen();
-                  }}
-                  aria-label={browserFs ? "Exit fullscreen" : "Enter fullscreen"}
-                >
-                  {browserFs ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
-                  <span>{browserFs ? "Exit" : "Full"}</span>
-                </button>
-              </div>
-            </div>
+                  </div>
+                </div>
+              )}
+            </>
           )}
-          <div className={tableOpen ? "table-fullscreen-body" : undefined}>{table}</div>
+          <div className={tableOpen ? (isLandscape ? "table-fullscreen-body table-landscape-body" : "table-fullscreen-body") : undefined}>{table}</div>
         </div>
       )}
     </div>

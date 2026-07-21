@@ -2022,6 +2022,56 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Table theme skins ─────────────────────────────────────────────────────
+   Each skin overrides --felt / --felt-mid / --felt-edge / --rail / --rail-inner
+   via data-theme attribute on .poker-shell.
+   ─────────────────────────────────────────────────────────────────────── */
+
+/* Default: Casino Green */
+.poker-shell[data-theme="green"] {
+  --felt: #1b7a4a;
+  --felt-mid: #24965c;
+  --felt-edge: #0f5a35;
+  --rail: #2a303c;
+  --rail-inner: #3a4250;
+}
+
+/* Midnight Blue */
+.poker-shell[data-theme="blue"] {
+  --felt: #1a3a6a;
+  --felt-mid: #1f4d8a;
+  --felt-edge: #0f2550;
+  --rail: #0a1830;
+  --rail-inner: #1a2d50;
+}
+
+/* Royal Red */
+.poker-shell[data-theme="red"] {
+  --felt: #7a1b2a;
+  --felt-mid: #962433;
+  --felt-edge: #5a0f1c;
+  --rail: #2a1418;
+  --rail-inner: #3d1c22;
+}
+
+/* Smokey Slate */
+.poker-shell[data-theme="slate"] {
+  --felt: #2e3540;
+  --felt-mid: #3a4455;
+  --felt-edge: #1c2230;
+  --rail: #14191f;
+  --rail-inner: #252c38;
+}
+
+/* Deep Purple */
+.poker-shell[data-theme="purple"] {
+  --felt: #3b1a6a;
+  --felt-mid: #4d2490;
+  --felt-edge: #260f50;
+  --rail: #1a1030;
+  --rail-inner: #2d1a4d;
+}
+
 .felt-table {
   background:
     radial-gradient(ellipse at 50% 40%, var(--felt-mid) 0%, var(--felt) 48%, var(--felt-edge) 100%);
@@ -2031,6 +2081,48 @@ a {
     inset 0 0 70px rgba(0, 0, 0, 0.28),
     0 18px 50px rgba(0, 0, 0, 0.55);
 }
+
+/* Theme picker pill strip */
+.table-theme-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.table-theme-picker-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  flex-shrink: 0;
+}
+
+.table-theme-swatch {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.table-theme-swatch:hover {
+  transform: scale(1.15);
+}
+
+.table-theme-swatch.is-active {
+  border-color: var(--gold-soft);
+  box-shadow: 0 0 0 1px rgba(212, 168, 83, 0.6);
+  transform: scale(1.1);
+}
+
+.table-theme-swatch.theme-green { background: radial-gradient(circle at 40% 40%, #24965c, #0f5a35); }
+.table-theme-swatch.theme-blue  { background: radial-gradient(circle at 40% 40%, #1f4d8a, #0f2550); }
+.table-theme-swatch.theme-red   { background: radial-gradient(circle at 40% 40%, #962433, #5a0f1c); }
+.table-theme-swatch.theme-slate { background: radial-gradient(circle at 40% 40%, #3a4455, #1c2230); }
+.table-theme-swatch.theme-purple{ background: radial-gradient(circle at 40% 40%, #4d2490, #260f50); }
 
 .playing-card {
   width: 54px;
@@ -2674,6 +2766,79 @@ body.table-play-mode .app-mobile-nav {
   .poker-shell.is-fullscreen .hero-hand-slot {
     display: none;
   }
+
+  .poker-shell.is-fullscreen .poker-chrome {
+    display: none;
+  }
+}
+
+/* Landscape fullscreen body — no top-bar so body fills the whole screen */
+.table-landscape-body {
+  position: absolute;
+  inset: 0;
+  padding: 0 !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Floating action buttons — landscape mode */
+.table-landscape-fabs {
+  position: fixed;
+  right: env(safe-area-inset-right, 0.5rem);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.45rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(7, 11, 18, 0.82);
+  backdrop-filter: blur(14px);
+}
+
+.table-fab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-width: 2.6rem;
+  min-height: 2.6rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  touch-action: manipulation;
+}
+
+.table-fab:hover,
+.table-fab:active {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.table-fab:disabled {
+  opacity: 0.45;
+}
+
+.table-fab-exit {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.table-fab-danger {
+  border-color: rgba(179, 58, 74, 0.5);
+  background: rgba(179, 58, 74, 0.18);
+  color: #f0c4ca;
 }
 
 /* —— Portrait / one-handed mobile controls —— */

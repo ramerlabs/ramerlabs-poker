@@ -290,6 +290,16 @@ function TurnTimer({
   );
 }
 
+export type TableTheme = "green" | "blue" | "red" | "slate" | "purple";
+
+export const TABLE_THEMES: { id: TableTheme; label: string }[] = [
+  { id: "green", label: "Casino Green" },
+  { id: "blue", label: "Midnight Blue" },
+  { id: "red", label: "Royal Red" },
+  { id: "slate", label: "Smokey Slate" },
+  { id: "purple", label: "Deep Purple" },
+];
+
 export function PokerTable({
   roomId,
   tableName = "Table",
@@ -311,6 +321,7 @@ export function PokerTable({
   chatEnabled = true,
   topUpHref = "/wallet",
   topUpLabel = "Top up wallet",
+  isCreator = false,
   onPlayersChanged,
   onSitResult,
 }: {
@@ -339,6 +350,8 @@ export function PokerTable({
   walletSource?: "system" | "club";
   /** Whether table chat is enabled (admin toggle) */
   chatEnabled?: boolean;
+  /** Whether this viewer is the first player (room creator) — can change table theme */
+  isCreator?: boolean;
   /** Where to send players who need more off-table balance */
   topUpHref?: string;
   topUpLabel?: string;
@@ -396,6 +409,15 @@ export function PokerTable({
   const [holeCardsVisible, setHoleCardsVisible] = useState(true);
   const [muted, setMutedState] = useState(false);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const [tableTheme, setTableThemeState] = useState<TableTheme>(() => {
+    if (typeof window === "undefined") return "green";
+    return (localStorage.getItem(`rl-theme-${roomId}`) as TableTheme) ?? "green";
+  });
+
+  const setTableTheme = (t: TableTheme) => {
+    setTableThemeState(t);
+    try { localStorage.setItem(`rl-theme-${roomId}`, t); } catch { /* ignore */ }
+  };
   const [winnerVisible, setWinnerVisible] = useState(false);
   const [attentionOpen, setAttentionOpen] = useState(false);
   const [attentionAcked, setAttentionAcked] = useState(false);
@@ -1855,6 +1877,7 @@ export function PokerTable({
         fullscreen && "is-fullscreen",
         oneHanded && "is-portrait",
       )}
+      data-theme={tableTheme}
     >
       <div className="poker-chrome flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -1868,6 +1891,24 @@ export function PokerTable({
           {!compact && <Badge tone="muted">{seatedCount} seated</Badge>}
           {!compact && state.rakePercent > 0 && (
             <Badge tone="gold">Rake {state.rakePercent}%</Badge>
+          )}
+          {isCreator && !compact && (
+            <div className="table-theme-picker" title="Table felt design — only you can change this">
+              <span className="table-theme-picker-label">Felt</span>
+              {TABLE_THEMES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={cn(
+                    `table-theme-swatch theme-${t.id}`,
+                    tableTheme === t.id && "is-active",
+                  )}
+                  title={t.label}
+                  onClick={() => setTableTheme(t.id)}
+                  aria-pressed={tableTheme === t.id}
+                />
+              ))}
+            </div>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
