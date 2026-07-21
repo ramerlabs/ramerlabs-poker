@@ -7,6 +7,7 @@ import { getPublicBranding } from "@/lib/branding";
 import { isBotUserId } from "@/lib/poker/bot";
 import { purgeStalePlayers } from "@/lib/table-roster";
 import { getRecentTableChats } from "@/lib/table-chat";
+import { resolveRoomAccess } from "@/lib/room-access";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -59,40 +60,28 @@ export async function GET(req: Request, { params }: Params) {
 
   if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
 
+  const access = await resolveRoomAccess(id, authResult, { invite });
   const myPlayer = room.players.find((p) => p.userId === authResult.userId);
-  const seated = Boolean(myPlayer);
-  const waiting = room.waitlist.some((w) => w.userId === authResult.userId);
-  const isCreator = room.creatorId === authResult.userId;
-  const validInvite = Boolean(
-    invite &&
-      room.inviteCode &&
-      invite.trim().toUpperCase() === room.inviteCode.trim().toUpperCase(),
-  );
+  const seated = access.seated;
+  const waiting = access.waiting;
+  const isCreator = access.isCreator;
 
-  if (room.isPrivate) {
-    if (
-      !seated &&
-      !waiting &&
-      !isCreator &&
-      authResult.role !== "ADMIN" &&
-      !validInvite
-    ) {
-      return NextResponse.json(
-        {
-          error: "Private room — join with invite code",
-          private: true,
-          room: {
-            id: room.id,
-            name: room.name,
-            type: room.type,
-            currency: room.currency,
-            buyIn: toNumber(room.buyIn),
-            isPrivate: true,
-          },
+  if (!access.allowed) {
+    return NextResponse.json(
+      {
+        error: "Private room — join with invite code",
+        private: true,
+        room: {
+          id: room.id,
+          name: room.name,
+          type: room.type,
+          currency: room.currency,
+          buyIn: toNumber(room.buyIn),
+          isPrivate: true,
         },
-        { status: 403 },
-      );
-    }
+      },
+      { status: 403 },
+    );
   }
 
   const game = await getPublicGameState(id, authResult.userId, { tick: !skipTick });

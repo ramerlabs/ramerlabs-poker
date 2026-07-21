@@ -792,6 +792,9 @@ export function PokerTable({
   const ingestReactionRef = useRef(ingestReaction);
   ingestReactionRef.current = ingestReaction;
 
+  const inviteCodeRef = useRef(inviteCode);
+  inviteCodeRef.current = inviteCode;
+
   const refresh = useCallback(async (opts?: { tick?: boolean; force?: boolean }) => {
     // Never run parallel room fetches — but never let a hung fetch block forever.
     if (refreshInflight.current) {
@@ -834,7 +837,12 @@ export function PokerTable({
 
     const marker = (async () => {
       try {
-        const qs = doTick ? "?light=1" : "?light=1&tick=0";
+        const params = new URLSearchParams();
+        params.set("light", "1");
+        if (!doTick) params.set("tick", "0");
+        const invite = inviteCodeRef.current?.trim();
+        if (invite) params.set("invite", invite);
+        const qs = `?${params.toString()}`;
         const res = await fetch(`/api/rooms/${roomId}${qs}`, {
           cache: "no-store",
           headers: { "Cache-Control": "no-cache" },
