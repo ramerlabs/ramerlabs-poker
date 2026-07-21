@@ -556,6 +556,64 @@ async function cashOutSeatedPlayer(roomId: string, userId: string) {
   await saveTableState(roomId, next);
 }
 
+/** Add chips from wallet to an already-seated player (between hands only). */
+export async function rebuySeatedPlayer(
+  roomId: string,
+  userId: string,
+  buyInAmount: number,
+) {
+  if (isBotUserId(userId)) throw new Error("Bots rebuy automatically");
+
+  const room = await prisma.room.findUnique({ where: { id: roomId } });
+  if (!room || room.status === "CLOSED") throw new Error("Room not found");
+
+  const player = await prisma.roomPlayer.findUnique({
+    where: { roomId_userId: { roomId, userId } },
+  });
+  if (!player) throw new Error("Sit at the table first");
+
+  const state = await ensureGameState(roomId);
+  if (state.street !== "waiting" && state.street !== "complete") {
+    throw new Error("Add chips between hands only");
+  }
+
+  const wallet = await resolvePlayWallet(room, userId);
+  const minBuyIn = toNumber(room.buyIn);
+  const amount = Math.round(Number(buyInAmount) * 100) / 100;
+  if (!Number.isFinite(amount) || amount < minBuyIn) {
+    throw new Error(`Buy-in must be at least ${minBuyIn}`);
+  }
+  if (amount > wallet.balance) {
+    throw new Error(
+      `Insufficient ${wallet.source === "club" ? "club" : "system"} balance (have ${wallet.balance})`,
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await debitPlayWallet(wallet, userId, amount, tx);
+    await tx.roomPlayer.update({
+      where: { id: player.id },
+      data: { stack: { increment: new Prisma.Decimal(amount) } },
+    });
+  });
+
+  const refreshed = await prisma.roomPlayer.findUnique({
+    where: { id: player.id },
+    select: { stack: true },
+  });
+  const newStack = toNumber(refreshed?.stack);
+
+  let next = await ensureGameState(roomId);
+  const seat = next.seats.find((s) => s.userId === userId);
+  if (seat) {
+    seat.stack = newStack;
+    seat.sittingOut = false;
+  }
+  await saveTableState(roomId, next);
+
+  return { amount, newStack, currency: room.currency };
+}
+
 export async function leaveTable(roomId: string, userId: string) {
   if (isBotUserId(userId)) throw new Error("Bots leave via roster management");
 

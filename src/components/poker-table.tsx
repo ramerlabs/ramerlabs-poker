@@ -1,10 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSession } from "next-auth/react";
 import * as Ably from "ably";
 import { PlayingCard } from "@/components/playing-card";
 import { PlayerAvatar } from "@/components/player-avatar";
+import { BetSlider } from "@/components/bet-slider";
+import { TableReactionFx, type ActiveReaction } from "@/components/table-reaction-fx";
 import { Badge, Button, Input, Label } from "@/components/ui";
 import type { PublicTableState } from "@/lib/poker/types";
 import { DEFAULT_TURN_SECONDS } from "@/lib/poker/types";
@@ -20,6 +23,12 @@ import {
 } from "@/lib/sounds";
 import { getHandHints } from "@/lib/poker/hand-hints";
 import { cn, readJson } from "@/lib/utils";
+import {
+  REACTION_VISIBLE_MS,
+  THROWABLE_CATALOG,
+  type TableReactionEvent,
+  type ThrowableItem,
+} from "@/lib/table-reactions";
 
 type RoomPlayer = {
   userId: string;
@@ -130,10 +139,14 @@ type SeatLayout = Record<number, { left: string; top: string }>;
  * Place seats evenly around the oval rail for the table's seat count (2–9).
  * Starts at top-center and goes clockwise so spacing stays equal for 6-max or 9-max tables.
  */
-function buildSeatLayout(seatCount: number, compact = false): SeatLayout {
+function buildSeatLayout(seatCount: number, compact = false, portrait = false): SeatLayout {
   const n = Math.max(2, Math.min(9, Math.floor(seatCount) || 2));
-  const rx = compact ? 38 : 43;
-  const ry = compact ? 41.5 : 47;
+  let rx = compact ? 38 : 43;
+  let ry = compact ? 41.5 : 47;
+  if (portrait) {
+    rx = compact ? 40 : 42;
+    ry = compact ? 44 : 46;
+  }
   const layout: SeatLayout = {};
   for (let i = 0; i < n; i += 1) {
     // -90° = top; increasing angle walks clockwise on screen
@@ -292,6 +305,8 @@ export function PokerTable({
   currency = "CREDITS",
   walletBalance = 0,
   chatEnabled = true,
+  topUpHref = "/wallet",
+  topUpLabel = "Top up wallet",
   onPlayersChanged,
   onSitResult,
 }: {
@@ -318,12 +333,16 @@ export function PokerTable({
   walletBalance?: number;
   /** Whether table chat is enabled (admin toggle) */
   chatEnabled?: boolean;
+  /** Where to send players who need more off-table balance */
+  topUpHref?: string;
+  topUpLabel?: string;
   onPlayersChanged?: () => void;
   onSitResult?: (msg: string) => void;
 }) {
   const { data: session } = useSession();
   const myUserId = viewerUserId || session?.user?.id;
   const [narrow, setNarrow] = useState(false);
+  const [portrait, setPortrait] = useState(false);
   const [state, setState] = useState(initialState);
   const [players, setPlayers] = useState(initialPlayers);
 
@@ -348,6 +367,12 @@ export function PokerTable({
     setChatOn(chatEnabled);
   }, [chatEnabled]);
   const [raiseTo, setRaiseTo] = useState("");
+  const [raiseSlider, setRaiseSlider] = useState(0);
+  const [autoCheck, setAutoCheck] = useState(false);
+  const [autoFold, setAutoFold] = useState(false);
+  const [reactionPick, setReactionPick] = useState<ThrowableItem | null>(null);
+  const [activeReactions, setActiveReactions] = useState<ActiveReaction[]>([]);
+  const [reactionBusy, setReactionBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
@@ -375,8 +400,14 @@ export function PokerTable({
   const [chatBusy, setChatBusy] = useState(false);
   const [chatOn, setChatOn] = useState(chatEnabled);
   const [buyInSeat, setBuyInSeat] = useState<number | null>(null);
+  const [buyInMode, setBuyInMode] = useState<"sit" | "rebuy">("sit");
   const [buyInAmount, setBuyInAmount] = useState("");
   const [walletLeft, setWalletLeft] = useState(walletBalance);
+  const [chatExpanded, setChatExpanded] = useState(false);
+  const [chatUnread, setChatUnread] = useState(0);
+  const [stackPrompt, setStackPrompt] = useState<"rebuy" | "topup" | null>(null);
+  const stackPromptDismissedHand = useRef<number | null>(null);
+  const chatLogRef = useRef<HTMLDivElement>(null);
   const seenChatIds = useRef(new Set<string>());
   const lastActionKey = useRef<string>("");
   const lastHandRef = useRef(0);
@@ -424,9 +455,22 @@ export function PokerTable({
     return () => mq.removeEventListener("change", sync);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(orientation: portrait)");
+    const sync = () => setPortrait(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
   const compact = fullscreen || narrow;
+  const oneHanded = compact && portrait;
   const seatCount = Math.min(Math.max(maxPlayers, 2), 9);
-  const seatLayout = useMemo(() => buildSeatLayout(seatCount, compact), [seatCount, compact]);
+  const seatLayout = useMemo(
+    () => buildSeatLayout(seatCount, compact, portrait),
+    [seatCount, compact, portrait],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -611,17 +655,33 @@ export function PokerTable({
   const ingestChat = useCallback((msg: TableChatBubble) => {
     if (!msg?.id || seenChatIds.current.has(msg.id)) return;
     const age = Date.now() - new Date(msg.createdAt).getTime();
-    if (Number.isFinite(age) && age > 12_000) return;
+    if (Number.isFinite(age) && age > 60_000) return;
     seenChatIds.current.add(msg.id);
-    setChatBubbles((prev) => [...prev, msg]);
-    const remain = Number.isFinite(age) ? Math.max(900, 12_000 - age) : 12_000;
+    setChatBubbles((prev) => [...prev, msg].slice(-40));
+    if (!chatExpanded) setChatUnread((n) => n + 1);
+    const remain = Number.isFinite(age) ? Math.max(900, 60_000 - age) : 60_000;
     window.setTimeout(() => {
       setChatBubbles((prev) => prev.filter((b) => b.id !== msg.id));
     }, remain);
-  }, []);
+  }, [chatExpanded]);
 
   const ingestChatRef = useRef(ingestChat);
   ingestChatRef.current = ingestChat;
+
+  const ingestReaction = useCallback((event: TableReactionEvent) => {
+    if (!event?.id) return;
+    const expiresAt = Date.now() + REACTION_VISIBLE_MS;
+    setActiveReactions((prev) => {
+      if (prev.some((r) => r.id === event.id)) return prev;
+      return [...prev, { ...event, expiresAt }].slice(-8);
+    });
+    window.setTimeout(() => {
+      setActiveReactions((prev) => prev.filter((r) => r.id !== event.id));
+    }, REACTION_VISIBLE_MS + 120);
+  }, []);
+
+  const ingestReactionRef = useRef(ingestReaction);
+  ingestReactionRef.current = ingestReaction;
 
   const refresh = useCallback(async (opts?: { tick?: boolean; force?: boolean }) => {
     // Never run parallel room fetches — but never let a hung fetch block forever.
@@ -798,6 +858,10 @@ export function PokerTable({
             const data = message.data as TableChatBubble;
             if (data?.id) ingestChatRef.current(data);
           });
+          channel.subscribe("reaction", (message) => {
+            const data = message.data as TableReactionEvent;
+            if (data?.id) ingestReactionRef.current(data);
+          });
           client.connection.on("connected", () => {
             if (!cancelled) startPolling("backup");
           });
@@ -831,9 +895,56 @@ export function PokerTable({
     viewerSeat ??
     players.find((p) => p.userId === myUserId)?.seat;
 
+  const lowStackThreshold = useMemo(
+    () => Math.max(0, minBuyIn * 0.2),
+    [minBuyIn],
+  );
+  const buyInModalOpen = buyInSeat != null || buyInMode === "rebuy";
+
+  useEffect(() => {
+    if (chatLogRef.current && chatExpanded) {
+      chatLogRef.current.scrollTop = chatLogRef.current.scrollHeight;
+    }
+  }, [chatBubbles, chatExpanded]);
+
+  useEffect(() => {
+    if (!mySeat || minBuyIn <= 0) {
+      setStackPrompt(null);
+      return;
+    }
+    const betweenHands = state.street === "waiting" || state.street === "complete";
+    if (!betweenHands) return;
+    if (mySeat.stack > lowStackThreshold) {
+      stackPromptDismissedHand.current = null;
+      setStackPrompt(null);
+      return;
+    }
+    if (buyInModalOpen || stackPrompt) return;
+    if (stackPromptDismissedHand.current === state.handNumber) return;
+    setStackPrompt(walletLeft >= minBuyIn ? "rebuy" : "topup");
+  }, [
+    mySeat,
+    minBuyIn,
+    lowStackThreshold,
+    state.street,
+    state.handNumber,
+    walletLeft,
+    buyInModalOpen,
+    stackPrompt,
+  ]);
+
   const tipAmount = Math.max(1, state.smallBlind || 1);
   const callAmount = Math.max(0, (state.currentBet || 0) - (mySeat?.bet || 0));
   const canCheck = callAmount <= 0;
+
+  const raiseBounds = useMemo(() => {
+    if (!mySeat) return { min: 0, max: 0 };
+    const maxTo = mySeat.bet + mySeat.stack;
+    const minTo = canCheck
+      ? Math.min(maxTo, Math.max(state.bigBlind, state.minRaise))
+      : Math.min(maxTo, state.currentBet + state.minRaise);
+    return { min: minTo, max: maxTo };
+  }, [mySeat, canCheck, state.bigBlind, state.currentBet, state.minRaise]);
 
   const isMyTurn = mySeat != null && state.actionSeat === mySeat.seat;
   const seatedCount = Math.max(state.seats.length, players.length);
@@ -857,6 +968,23 @@ export function PokerTable({
       ? `${state.handNumber}-${state.street}-${state.actionSeat}-${state.turnStartedAt}`
       : "";
   const attentionUrgent = canActNow && secondsLeft <= 5;
+
+  useEffect(() => {
+    if (!canActNow || raiseBounds.max <= 0) return;
+    const start = raiseBounds.min;
+    setRaiseSlider(start);
+    setRaiseTo(String(start));
+  }, [canActNow, turnKey, raiseBounds.min, raiseBounds.max]);
+
+  useEffect(() => {
+    if (!canActNow || busy || actingRef.current) return;
+    if (autoCheck && canCheck) {
+      void act("check", undefined, true);
+    } else if (autoFold && !canCheck) {
+      void act("fold", undefined, true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- act is stable enough; only fire on turn open
+  }, [canActNow, turnKey, autoCheck, autoFold, canCheck, busy]);
 
   const livePot = useMemo(
     () => state.pot + state.seats.reduce((sum, s) => sum + (s.bet || 0), 0),
@@ -1227,6 +1355,37 @@ export function PokerTable({
     }
   }
 
+  async function throwReaction(toUserId: string) {
+    if (!mySeat || !reactionPick || reactionBusy) return;
+    if (toUserId === myUserId) {
+      setError("Pick another player");
+      return;
+    }
+    setReactionBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/reaction`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toUserId, item: reactionPick }),
+      });
+      const json = await readJson<{ error?: string; reaction?: TableReactionEvent }>(res);
+      if (!res.ok) throw new Error(json.error || "Could not throw item");
+      if (json.reaction) ingestReaction(json.reaction);
+      setReactionPick(null);
+      playSfx("click");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not throw item");
+    } finally {
+      setReactionBusy(false);
+    }
+  }
+
+  function onSeatReactionTarget(userId: string) {
+    if (!reactionPick) return;
+    void throwReaction(userId);
+  }
+
   // Your turn: always open action popup + alert
   useEffect(() => {
     if (timeoutNotice || attentionLeaving) return;
@@ -1383,14 +1542,46 @@ export function PokerTable({
     unlockAudio();
     playSfx("click");
     const floor = Math.max(0, minBuyIn);
+    setBuyInMode("sit");
     setBuyInSeat(seatIndex);
     setBuyInAmount(String(floor));
     setError(null);
   }
 
+  function openRebuyFromPrompt() {
+    if (busy) return;
+    unlockAudio();
+    playSfx("click");
+    setStackPrompt(null);
+    setBuyInMode("rebuy");
+    setBuyInSeat(null);
+    setBuyInAmount(String(minBuyIn));
+    setError(null);
+  }
+
+  function dismissStackPrompt() {
+    stackPromptDismissedHand.current = state.handNumber;
+    setStackPrompt(null);
+  }
+
+  function closeBuyInModal() {
+    if (busy) return;
+    setBuyInSeat(null);
+    setBuyInMode("sit");
+  }
+
+  function toggleChatPanel() {
+    setChatExpanded((open) => {
+      const next = !open;
+      if (next) setChatUnread(0);
+      return next;
+    });
+  }
+
   async function confirmBuyIn(e?: FormEvent) {
     e?.preventDefault();
-    if (buyInSeat == null || busy) return;
+    if (busy) return;
+    if (buyInMode === "sit" && buyInSeat == null) return;
     const floor = Math.max(0, minBuyIn);
     const amount = Math.round(Number(buyInAmount) * 100) / 100;
     if (!Number.isFinite(amount) || amount < floor) {
@@ -1401,7 +1592,40 @@ export function PokerTable({
       setError(`Insufficient balance (have ${walletLeft})`);
       return;
     }
-    const seatIndex = buyInSeat;
+
+    if (buyInMode === "rebuy") {
+      setBusy(true);
+      setError(null);
+      setHint(null);
+      try {
+        const res = await fetch(`/api/rooms/${roomId}/rebuy`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ buyInAmount: amount }),
+        });
+        const json = await readJson<{
+          error?: string;
+          newStack?: number;
+        }>(res);
+        if (!res.ok) throw new Error(json.error || "Could not add chips");
+        closeBuyInModal();
+        setBusy(false);
+        const msg = `Added ${amount} ${currency} — stack is now ${(json.newStack ?? mySeat?.stack ?? 0).toLocaleString()}.`;
+        setHint(msg);
+        onSitResult?.(msg);
+        setWalletLeft((w) => Math.max(0, w - amount));
+        stackPromptDismissedHand.current = state.handNumber;
+        void refresh({ tick: false, force: true }).then(() => {
+          onPlayersChanged?.();
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not add chips");
+        setBusy(false);
+      }
+      return;
+    }
+
+    const seatIndex = buyInSeat!;
     setBusy(true);
     setError(null);
     setHint(null);
@@ -1425,8 +1649,7 @@ export function PokerTable({
         ? `You sat at seat ${seatIndex + 1} with ${amount} ${currency}.`
         : json.message ||
           `Seat ${seatIndex + 1} reserved — you join when this hand ends.`;
-      // Close modal immediately — don't wait on table refresh / room reload
-      setBuyInSeat(null);
+      closeBuyInModal();
       setBusy(false);
       setHint(msg);
       onSitResult?.(msg);
@@ -1530,6 +1753,7 @@ export function PokerTable({
         "poker-shell space-y-3",
         compact && "is-compact",
         fullscreen && "is-fullscreen",
+        oneHanded && "is-portrait",
       )}
     >
       <div className="poker-chrome flex flex-wrap items-center justify-between gap-2">
@@ -1625,6 +1849,7 @@ export function PokerTable({
           className={cn(
             "table-action-dock is-your-turn is-popup",
             compact && "is-compact",
+            oneHanded && "is-portrait",
             attentionUrgent && "is-urgent",
           )}
           role="dialog"
@@ -1642,7 +1867,7 @@ export function PokerTable({
             </div>
             <TurnTimer secondsLeft={secondsLeft} total={turnSeconds} />
           </div>
-          <div className="action-bar">
+          <div className="action-bar action-bar-primary">
             <Button disabled={busy} variant="danger" onClick={() => void act("fold")}>
               Fold
             </Button>
@@ -1655,9 +1880,64 @@ export function PokerTable({
                 Call {callAmount}
               </Button>
             )}
+            <Button
+              disabled={busy}
+              variant="ghost"
+              onClick={() => void act(canCheck ? "check" : "fold")}
+              title={canCheck ? "Check if free, otherwise fold" : "Fold"}
+            >
+              Check/Fold
+            </Button>
             <Button disabled={busy} variant="ghost" onClick={() => void act("allin")}>
               All-in
             </Button>
+          </div>
+          <div className="action-auto-row">
+            <button
+              type="button"
+              className={cn("action-auto-pill", autoCheck && "is-on")}
+              disabled={busy}
+              onClick={() => {
+                setAutoCheck((v) => !v);
+                if (!autoCheck) setAutoFold(false);
+              }}
+            >
+              Auto-check
+            </button>
+            <button
+              type="button"
+              className={cn("action-auto-pill", autoFold && "is-on")}
+              disabled={busy}
+              onClick={() => {
+                setAutoFold((v) => !v);
+                if (!autoFold) setAutoCheck(false);
+              }}
+            >
+              Auto-fold
+            </button>
+          </div>
+          {compact ? (
+            <div className="raise-row raise-row-slider">
+              <BetSlider
+                min={raiseBounds.min}
+                max={raiseBounds.max}
+                value={raiseSlider}
+                disabled={busy || raiseBounds.max <= raiseBounds.min}
+                onChange={(v) => {
+                  setRaiseSlider(v);
+                  setRaiseTo(String(v));
+                }}
+              />
+              <Button
+                disabled={busy || raiseBounds.max <= 0 || raiseSlider < raiseBounds.min}
+                onClick={() =>
+                  void act(canCheck && state.currentBet === 0 ? "bet" : "raise", raiseSlider)
+                }
+              >
+                {canCheck && state.currentBet === 0 ? "Bet" : "Raise"}
+              </Button>
+            </div>
+          ) : (
             <div className="raise-row">
               <Input
                 className="w-28"
@@ -1667,17 +1947,24 @@ export function PokerTable({
               />
               <Button
                 disabled={busy || !raiseTo}
-                onClick={() => void act("raise", Number(raiseTo))}
+                onClick={() =>
+                  void act(
+                    canCheck && state.currentBet === 0 ? "bet" : "raise",
+                    Number(raiseTo),
+                  )
+                }
               >
-                Raise
+                {canCheck && state.currentBet === 0 ? "Bet" : "Raise"}
               </Button>
-              {!attentionAcked && (
-                <Button disabled={busy} variant="ghost" onClick={acknowledgeAttention}>
-                  Mute alerts
-                </Button>
-              )}
             </div>
-          </div>
+          )}
+          {!attentionAcked ? (
+            <div className="action-dock-foot">
+              <Button disabled={busy} variant="ghost" onClick={acknowledgeAttention}>
+                Mute alerts
+              </Button>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -1694,6 +1981,113 @@ export function PokerTable({
           latencyMs={latencyMs}
           className="conn-meter-on-table"
         />
+
+        {chatOn ? (
+          <div
+            className={cn("table-chat-panel", chatExpanded && "is-open")}
+            aria-label="Table chat"
+          >
+            <button
+              type="button"
+              className="table-chat-panel-toggle"
+              onClick={toggleChatPanel}
+              aria-expanded={chatExpanded}
+            >
+              <span>Chat</span>
+              {chatUnread > 0 ? (
+                <span className="table-chat-badge" aria-label={`${chatUnread} new`}>
+                  {chatUnread > 9 ? "9+" : chatUnread}
+                </span>
+              ) : null}
+            </button>
+            {chatExpanded ? (
+              <div className="table-chat-panel-body">
+                <div ref={chatLogRef} className="table-chat-log" role="log" aria-live="polite">
+                  {chatBubbles.length === 0 ? (
+                    <p className="table-chat-empty">No messages yet — say hello.</p>
+                  ) : (
+                    chatBubbles.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={cn(
+                          "table-chat-line",
+                          msg.userId === myUserId && "is-me",
+                        )}
+                      >
+                        <span className="table-chat-name">{msg.name}</span>
+                        <span className="table-chat-text">{msg.text}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+                {mySeat ? (
+                  <>
+                    <div className="table-reaction-picker" aria-label="Throw items at players">
+                      <div className="table-reaction-picker-head">
+                        <span>Reactions</span>
+                        {reactionPick ? (
+                          <button
+                            type="button"
+                            className="table-reaction-cancel"
+                            onClick={() => setReactionPick(null)}
+                          >
+                            Cancel
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="table-reaction-items">
+                        {(Object.keys(THROWABLE_CATALOG) as ThrowableItem[]).map((item) => {
+                          const meta = THROWABLE_CATALOG[item];
+                          return (
+                            <button
+                              key={item}
+                              type="button"
+                              className={cn(
+                                "table-reaction-btn",
+                                reactionPick === item && "is-active",
+                              )}
+                              disabled={reactionBusy}
+                              title={meta.label}
+                              onClick={() =>
+                                setReactionPick((cur) => (cur === item ? null : item))
+                              }
+                            >
+                              <span aria-hidden>{meta.emoji}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {reactionPick ? (
+                        <p className="table-reaction-hint">Tap an opponent&apos;s seat on the felt.</p>
+                      ) : null}
+                    </div>
+                    <form className="table-chat-compose" onSubmit={(e) => void sendChat(e)}>
+                    <Input
+                      value={chatText}
+                      maxLength={80}
+                      placeholder="Message…"
+                      className="table-chat-input"
+                      onChange={(e) => setChatText(e.target.value)}
+                      disabled={chatBusy}
+                      aria-label="Table chat message"
+                    />
+                    <Button
+                      type="submit"
+                      disabled={chatBusy || !chatText.trim()}
+                      className="!px-3 !py-2 text-xs"
+                    >
+                      Send
+                    </Button>
+                  </form>
+                  </>
+                ) : (
+                  <p className="table-chat-spectate">Sit down to chat.</p>
+                )}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="table-stage-row">
         <div className="table-felt-wrap relative mx-auto w-full max-w-4xl">
           <div ref={feltRef} className="felt-table absolute inset-0 overflow-hidden rounded-[999px]">
@@ -1834,6 +2228,14 @@ export function PokerTable({
             }
           />
         ))}
+
+        <TableReactionFx reactions={activeReactions} layout={seatLayout} />
+
+        {reactionPick ? (
+          <div className="felt-reaction-banner" role="status">
+            {THROWABLE_CATALOG[reactionPick].emoji} Tap a player to throw
+          </div>
+        ) : null}
 
         {/* Winner celebration: fireworks then auto-fade */}
         {showWinner && primaryWinner && (
@@ -1996,9 +2398,6 @@ export function PokerTable({
             seat.holeCards.length > 0
               ? seat.holeCards
               : Array.from({ length: seat.cardCount || 2 }, () => "hidden");
-          const seatChat = chatBubbles.filter((b) => b.userId === seat.userId).slice(-1)[0];
-          const bubbleSide =
-            Number.parseFloat(pos.left) >= 50 ? "right" : "left";
 
           return (
             <div
@@ -2009,8 +2408,20 @@ export function PokerTable({
                 isWinner && "is-winner",
                 seat.folded && "is-folded",
                 isMe && "is-me",
+                reactionPick && !isMe && "is-reaction-target",
               )}
               style={{ left: pos.left, top: pos.top }}
+              onClick={() => {
+                if (reactionPick && !isMe) onSeatReactionTarget(seat.userId);
+              }}
+              onKeyDown={(e) => {
+                if (reactionPick && !isMe && (e.key === "Enter" || e.key === " ")) {
+                  e.preventDefault();
+                  onSeatReactionTarget(seat.userId);
+                }
+              }}
+              role={reactionPick && !isMe ? "button" : undefined}
+              tabIndex={reactionPick && !isMe ? 0 : undefined}
             >
               {isMe && !seat.folded && <div className="seat-you-badge">You</div>}
               {isMe && seat.folded && state.street !== "waiting" && !showWinner && (
@@ -2046,15 +2457,6 @@ export function PokerTable({
               )}
 
               <div className="seat-avatar-wrap">
-                {seatChat && (
-                  <div
-                    className={cn("seat-chat-bubble", `is-${bubbleSide}`)}
-                    key={seatChat.id}
-                    role="status"
-                  >
-                    {seatChat.text}
-                  </div>
-                )}
                 <PlayerAvatar userId={seat.userId} name={displayName} size="md" />
                 {isDealer && (
                   <span
@@ -2140,25 +2542,57 @@ export function PokerTable({
         </div>
       </div>
 
-      {mySeat && chatOn ? (
-        <form className="table-chat-dock" onSubmit={(e) => void sendChat(e)}>
-          <Input
-            value={chatText}
-            maxLength={80}
-            placeholder="Table chat…"
-            className="table-chat-input"
-            onChange={(e) => setChatText(e.target.value)}
-            disabled={chatBusy}
-            aria-label="Table chat message"
-          />
-          <Button type="submit" disabled={chatBusy || !chatText.trim()} className="!px-3 !py-2 text-xs">
-            Send
-          </Button>
-        </form>
+
+      {stackPrompt ? (
+        <div className="buyin-overlay stack-prompt-overlay" role="presentation">
+          <div
+            className="buyin-modal stack-prompt-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="stack-prompt-title"
+          >
+            <div className="buyin-eyebrow">Low stack</div>
+            <h2 id="stack-prompt-title" className="buyin-title">
+              {stackPrompt === "rebuy" ? "Add more chips?" : "Top up to keep playing"}
+            </h2>
+            <p className="buyin-copy">
+              Your stack ({mySeat?.stack.toLocaleString() ?? 0} {currency}) is at or below 20% of
+              the minimum buy-in ({minBuyIn.toLocaleString()} {currency}).
+              {stackPrompt === "rebuy" ? (
+                <>
+                  {" "}
+                  You have {walletLeft.toLocaleString()} {currency} available in your wallet.
+                </>
+              ) : (
+                <>
+                  {" "}
+                  Your wallet balance ({walletLeft.toLocaleString()} {currency}) is below the
+                  minimum buy-in.
+                </>
+              )}
+            </p>
+            <div className="buyin-actions">
+              <Button type="button" variant="ghost" disabled={busy} onClick={dismissStackPrompt}>
+                Not now
+              </Button>
+              {stackPrompt === "rebuy" ? (
+                <Button type="button" disabled={busy} onClick={openRebuyFromPrompt}>
+                  Add chips
+                </Button>
+              ) : (
+                <Link href={topUpHref}>
+                  <Button type="button" disabled={busy}>
+                    {topUpLabel}
+                  </Button>
+                </Link>
+              )}
+            </div>
+          </div>
+        </div>
       ) : null}
 
-      {buyInSeat != null && (
-        <div className="buyin-overlay" role="presentation" onClick={() => !busy && setBuyInSeat(null)}>
+      {buyInModalOpen ? (
+        <div className="buyin-overlay" role="presentation" onClick={() => !busy && closeBuyInModal()}>
           <form
             className="buyin-modal"
             role="dialog"
@@ -2167,13 +2601,25 @@ export function PokerTable({
             onClick={(e) => e.stopPropagation()}
             onSubmit={(e) => void confirmBuyIn(e)}
           >
-            <div className="buyin-eyebrow">Seat {buyInSeat + 1}</div>
+            <div className="buyin-eyebrow">
+              {buyInMode === "rebuy"
+                ? "Rebuy"
+                : buyInSeat != null
+                  ? `Seat ${buyInSeat + 1}`
+                  : "Buy-in"}
+            </div>
             <h2 id="buyin-title" className="buyin-title">
-              Choose buy-in
+              {buyInMode === "rebuy" ? "Add chips to your stack" : "Choose buy-in"}
             </h2>
             <p className="buyin-copy">
-              Minimum {minBuyIn.toLocaleString()} {currency}. Balance{" "}
+              Minimum {minBuyIn.toLocaleString()} {currency}. Wallet balance{" "}
               {walletLeft.toLocaleString()} {currency}.
+              {buyInMode === "rebuy" && mySeat ? (
+                <>
+                  {" "}
+                  Current stack: {mySeat.stack.toLocaleString()} {currency}.
+                </>
+              ) : null}
             </p>
             <div className="buyin-presets">
               <button
@@ -2219,16 +2665,16 @@ export function PokerTable({
               autoFocus
             />
             <div className="buyin-actions">
-              <Button type="button" variant="ghost" disabled={busy} onClick={() => setBuyInSeat(null)}>
+              <Button type="button" variant="ghost" disabled={busy} onClick={closeBuyInModal}>
                 Cancel
               </Button>
               <Button type="submit" disabled={busy || walletLeft < minBuyIn}>
-                {busy ? "…" : "Sit down"}
+                {busy ? "…" : buyInMode === "rebuy" ? "Add chips" : "Sit down"}
               </Button>
             </div>
           </form>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -375,6 +375,12 @@ export default function RoomDetailPage() {
       currency={data.me.currency ?? data.room.currency}
       walletBalance={data.me.walletBalance ?? 0}
       chatEnabled={data.room.chatEnabled}
+      topUpHref={
+        data.room.club
+          ? `mailto:${data.room.club.owner.email}?subject=${encodeURIComponent(`Top-up request — ${data.room.club.name}`)}`
+          : "/wallet"
+      }
+      topUpLabel={data.room.club ? "Contact club owner" : "Top up wallet"}
       onPlayersChanged={() => void load()}
       onSitResult={(msg) => {
         toast.success(msg);
