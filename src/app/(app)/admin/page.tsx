@@ -138,6 +138,12 @@ export default function AdminPage() {
   const [fundKind, setFundKind] = useState<"FREE" | "REAL">("FREE");
   const [fundAmount, setFundAmount] = useState("1000");
   const [funding, setFunding] = useState(false);
+  const [branding, setBranding] = useState<{
+    siteName: string;
+    tableFooter: string;
+    logoUrl: string | null;
+  } | null>(null);
+  const [savingBranding, setSavingBranding] = useState(false);
 
   async function loadTickets(filters?: {
     status?: string;
@@ -155,7 +161,7 @@ export default function AdminPage() {
 
   async function load() {
     try {
-      const [curRes, rakeRes, roomsRes, ablyRes, couponRes, globalCurRes, clubsRes] =
+      const [curRes, rakeRes, roomsRes, ablyRes, couponRes, globalCurRes, clubsRes, brandingRes] =
         await Promise.all([
           fetch("/api/admin/currencies"),
           fetch("/api/admin/rake"),
@@ -164,8 +170,9 @@ export default function AdminPage() {
           fetch("/api/admin/coupons"),
           fetch("/api/admin/currency"),
           fetch("/api/admin/clubs"),
+          fetch("/api/admin/branding"),
         ]);
-      const [curJson, rakeJson, roomsJson, ablyJson, couponJson, globalCurJson, clubsJson] =
+      const [curJson, rakeJson, roomsJson, ablyJson, couponJson, globalCurJson, clubsJson, brandingJson] =
         await Promise.all([
           curRes.json().catch(() => ({})),
           rakeRes.json().catch(() => ({})),
@@ -174,6 +181,7 @@ export default function AdminPage() {
           couponRes.json().catch(() => ({})),
           globalCurRes.json().catch(() => ({})),
           clubsRes.json().catch(() => ({})),
+          brandingRes.json().catch(() => ({})),
         ]);
       if (!curRes.ok && !roomsRes.ok) {
         setError(curJson.error || roomsJson.error || "Admin access required");
@@ -196,6 +204,7 @@ export default function AdminPage() {
         setCurrencyOptions(globalCurJson.options ?? []);
       }
       if (clubsRes.ok) setClubs(clubsJson.clubs ?? []);
+      if (brandingRes.ok && brandingJson.branding) setBranding(brandingJson.branding);
       await loadTickets({
         status: ticketStatus,
         priority: ticketPriority,
@@ -1360,6 +1369,98 @@ export default function AdminPage() {
             <Button type="submit">Save currency</Button>
           </div>
         </form>
+      </Panel>
+
+      <Panel className="p-6">
+        <h2 className="text-xl font-semibold">Branding</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">
+          Customize the name shown on the felt, in the app header, and on the landing page.
+        </p>
+        {branding ? (
+          <form
+            className="mt-5 grid gap-4 md:grid-cols-2"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setSavingBranding(true);
+              const form = new FormData(e.currentTarget);
+              const logoRaw = String(form.get("logoUrl") || "").trim();
+              const res = await fetch("/api/admin/branding", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  siteName: String(form.get("siteName")).trim(),
+                  tableFooter: String(form.get("tableFooter")).trim(),
+                  logoUrl: logoRaw || null,
+                }),
+              });
+              const json = await res.json();
+              setSavingBranding(false);
+              if (res.ok && json.branding) {
+                setBranding(json.branding);
+                toast.success(json.message ?? "Branding saved");
+              } else {
+                toast.error(json.error ?? "Could not save branding");
+              }
+            }}
+          >
+            <div>
+              <Label>Site / club name</Label>
+              <Input
+                name="siteName"
+                defaultValue={branding.siteName}
+                required
+                maxLength={80}
+                placeholder="RamerLabs"
+              />
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Shown on the felt center and in the app header.
+              </p>
+            </div>
+            <div>
+              <Label>Table footer text</Label>
+              <Input
+                name="tableFooter"
+                defaultValue={branding.tableFooter}
+                required
+                maxLength={80}
+                placeholder="RamerLabs Poker"
+              />
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Subtitle under the site name on the felt.
+              </p>
+            </div>
+            <div className="md:col-span-2">
+              <Label>Logo URL (optional)</Label>
+              <Input
+                name="logoUrl"
+                type="url"
+                defaultValue={branding.logoUrl ?? ""}
+                maxLength={500}
+                placeholder="https://example.com/logo.png"
+              />
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Leave blank to use the default text logo in the nav.
+              </p>
+            </div>
+            {branding.logoUrl && (
+              <div className="md:col-span-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={branding.logoUrl}
+                  alt="Logo preview"
+                  className="h-12 rounded-lg border border-[var(--line)] bg-black/30 object-contain p-1"
+                />
+              </div>
+            )}
+            <div className="md:col-span-2">
+              <Button type="submit" disabled={savingBranding}>
+                {savingBranding ? "Saving…" : "Save branding"}
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <p className="mt-4 text-sm text-[var(--muted)]">Loading…</p>
+        )}
       </Panel>
     </div>
   );

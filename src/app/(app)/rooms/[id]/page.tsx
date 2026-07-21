@@ -58,6 +58,11 @@ type RoomPayload = {
     currency?: string;
     minBuyIn?: number;
   };
+  branding?: {
+    siteName: string;
+    tableFooter: string;
+    logoUrl: string | null;
+  };
   game: { state: PublicTableState };
 };
 
@@ -361,7 +366,7 @@ export default function RoomDetailPage() {
     <PokerTable
       roomId={data.room.id}
       tableName={data.room.name}
-      brandName="RamerLabs"
+      brandName={data.branding?.siteName ?? "RamerLabs"}
       initialState={data.game.state}
       players={data.room.players}
       maxPlayers={data.room.maxPlayers}

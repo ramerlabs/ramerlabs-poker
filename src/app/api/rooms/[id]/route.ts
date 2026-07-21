@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { toNumber } from "@/lib/utils";
-import { getPublicGameState } from "@/lib/game-service";
+import { getPublicGameState, getPlatformSettings } from "@/lib/game-service";
 import { isBotUserId } from "@/lib/poker/bot";
 import { purgeStalePlayers } from "@/lib/table-roster";
 import { getRecentTableChats } from "@/lib/table-chat";
@@ -117,6 +117,15 @@ export async function GET(req: Request, { params }: Params) {
         },
       });
 
+  // Branding — only fetch on full loads to avoid slowing tight polling
+  const branding = light
+    ? null
+    : await getPlatformSettings().then((s) => ({
+        siteName: s.siteName ?? "RamerLabs",
+        tableFooter: s.tableFooter ?? "RamerLabs Poker",
+        logoUrl: s.logoUrl ?? null,
+      }));
+
   let walletBalance = 0;
   let walletSource: "club" | "system" = "system";
   if (!light && meUser) {
@@ -219,6 +228,7 @@ export async function GET(req: Request, { params }: Params) {
         },
     game,
     chats,
+    ...(branding ? { branding } : {}),
   }, {
     headers: {
       "Cache-Control": "no-store, no-cache, must-revalidate",

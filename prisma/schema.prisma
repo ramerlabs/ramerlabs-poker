@@ -246,6 +246,10 @@ model PlatformSettings {
   ablyEnabled        Boolean @default(true)
   /// Optional Ably API key stored by admin (falls back to env ABLY_API_KEY).
   ablyApiKey         String?
+  /// Branding
+  siteName           String  @default("RamerLabs")
+  tableFooter        String  @default("RamerLabs Poker")
+  logoUrl            String?
   updatedAt          DateTime @updatedAt
 }
 

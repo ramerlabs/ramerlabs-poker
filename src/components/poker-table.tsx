@@ -506,6 +506,55 @@ export function PokerTable({
     };
   }, []);
 
+  // ── Reconnection buffer ──────────────────────────────────────────────────
+  // Cache game state in sessionStorage so that a brief cellular dropout
+  // restores the last-known board immediately, without waiting for a full poll.
+  const SESSION_KEY = `rl-poker-state-${roomId}`;
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = sessionStorage.getItem(SESSION_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw) as {
+          state: PublicTableState;
+          version: number;
+          ts: number;
+        };
+        // Only seed from cache if it is fresher than the server snapshot we
+        // loaded at mount time, and not older than 2 minutes (stale = misleading).
+        const age = Date.now() - (cached.ts ?? 0);
+        if (
+          age < 120_000 &&
+          cached.version > lastStateVersionRef.current &&
+          cached.state
+        ) {
+          lastStateVersionRef.current = cached.version;
+          setState(cached.state);
+        }
+      }
+    } catch {
+      // ignore parse/storage errors
+    }
+  // run once on mount — roomId / SESSION_KEY are stable
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      sessionStorage.setItem(
+        SESSION_KEY,
+        JSON.stringify({
+          state,
+          version: lastStateVersionRef.current,
+          ts: Date.now(),
+        }),
+      );
+    } catch {
+      // quota exceeded or private browsing — non-fatal
+    }
+  }, [state, SESSION_KEY]);
+
   // Dealer drops 2 hole cards to each seat before betting
   useEffect(() => {
     if (state.street !== "preflop" || state.handNumber <= 0) return;
@@ -2032,6 +2081,12 @@ export function PokerTable({
           latencyMs={latencyMs}
           className="conn-meter-on-table"
         />
+        {connLevel === "offline" && (
+          <div className="reconnect-banner" role="status" aria-live="polite">
+            <span className="reconnect-spinner" aria-hidden />
+            Reconnecting… your last hand state is saved locally
+          </div>
+        )}
 
         {chatOn ? (
           <div
