@@ -8,6 +8,7 @@ import { PlayingCard } from "@/components/playing-card";
 import { PlayerAvatar } from "@/components/player-avatar";
 import { BetSlider } from "@/components/bet-slider";
 import { TableReactionFx, type ActiveReaction } from "@/components/table-reaction-fx";
+import { SeatReactionMenu, type ReactionMenuTarget } from "@/components/seat-reaction-menu";
 import { Badge, Button, Input, Label } from "@/components/ui";
 import type { PublicTableState } from "@/lib/poker/types";
 import { DEFAULT_TURN_SECONDS } from "@/lib/poker/types";
@@ -18,6 +19,7 @@ import {
   loadMutePreference,
   onAudioUnlock,
   playSfx,
+  playReactionSfx,
   setMuted,
   unlockAudio,
 } from "@/lib/sounds";
@@ -25,10 +27,10 @@ import { getHandHints } from "@/lib/poker/hand-hints";
 import { cn, readJson } from "@/lib/utils";
 import {
   REACTION_VISIBLE_MS,
-  THROWABLE_CATALOG,
   type TableReactionEvent,
   type ThrowableItem,
 } from "@/lib/table-reactions";
+import { CHAT_VISIBLE_MS } from "@/lib/table-chat";
 
 type RoomPlayer = {
   userId: string;
@@ -370,7 +372,7 @@ export function PokerTable({
   const [raiseSlider, setRaiseSlider] = useState(0);
   const [autoCheck, setAutoCheck] = useState(false);
   const [autoFold, setAutoFold] = useState(false);
-  const [reactionPick, setReactionPick] = useState<ThrowableItem | null>(null);
+  const [reactionMenu, setReactionMenu] = useState<ReactionMenuTarget | null>(null);
   const [activeReactions, setActiveReactions] = useState<ActiveReaction[]>([]);
   const [reactionBusy, setReactionBusy] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -409,6 +411,7 @@ export function PokerTable({
   const stackPromptDismissedHand = useRef<number | null>(null);
   const chatLogRef = useRef<HTMLDivElement>(null);
   const seenChatIds = useRef(new Set<string>());
+  const seenReactionIds = useRef(new Set<string>());
   const lastActionKey = useRef<string>("");
   const lastHandRef = useRef(0);
   const lastStreetRef = useRef(state.street);
@@ -655,11 +658,11 @@ export function PokerTable({
   const ingestChat = useCallback((msg: TableChatBubble) => {
     if (!msg?.id || seenChatIds.current.has(msg.id)) return;
     const age = Date.now() - new Date(msg.createdAt).getTime();
-    if (Number.isFinite(age) && age > 60_000) return;
+    if (Number.isFinite(age) && age > CHAT_VISIBLE_MS) return;
     seenChatIds.current.add(msg.id);
     setChatBubbles((prev) => [...prev, msg].slice(-40));
     if (!chatExpanded) setChatUnread((n) => n + 1);
-    const remain = Number.isFinite(age) ? Math.max(900, 60_000 - age) : 60_000;
+    const remain = Number.isFinite(age) ? Math.max(900, CHAT_VISIBLE_MS - age) : CHAT_VISIBLE_MS;
     window.setTimeout(() => {
       setChatBubbles((prev) => prev.filter((b) => b.id !== msg.id));
     }, remain);
@@ -669,7 +672,9 @@ export function PokerTable({
   ingestChatRef.current = ingestChat;
 
   const ingestReaction = useCallback((event: TableReactionEvent) => {
-    if (!event?.id) return;
+    if (!event?.id || seenReactionIds.current.has(event.id)) return;
+    seenReactionIds.current.add(event.id);
+    playReactionSfx(event.item);
     const expiresAt = Date.now() + REACTION_VISIBLE_MS;
     setActiveReactions((prev) => {
       if (prev.some((r) => r.id === event.id)) return prev;
@@ -1355,25 +1360,24 @@ export function PokerTable({
     }
   }
 
-  async function throwReaction(toUserId: string) {
-    if (!mySeat || !reactionPick || reactionBusy) return;
+  async function throwReaction(toUserId: string, item: ThrowableItem) {
+    if (!mySeat || reactionBusy) return;
     if (toUserId === myUserId) {
       setError("Pick another player");
       return;
     }
     setReactionBusy(true);
+    setReactionMenu(null);
     setError(null);
     try {
       const res = await fetch(`/api/rooms/${roomId}/reaction`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ toUserId, item: reactionPick }),
+        body: JSON.stringify({ toUserId, item }),
       });
       const json = await readJson<{ error?: string; reaction?: TableReactionEvent }>(res);
       if (!res.ok) throw new Error(json.error || "Could not throw item");
       if (json.reaction) ingestReaction(json.reaction);
-      setReactionPick(null);
-      playSfx("click");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not throw item");
     } finally {
@@ -1381,9 +1385,20 @@ export function PokerTable({
     }
   }
 
-  function onSeatReactionTarget(userId: string) {
-    if (!reactionPick) return;
-    void throwReaction(userId);
+  function openReactionMenu(
+    seat: { userId: string; seat: number },
+    displayName: string,
+    pos: { left: string; top: string },
+  ) {
+    if (!mySeat || reactionBusy || seat.userId === myUserId) return;
+    playSfx("click");
+    setReactionMenu({
+      userId: seat.userId,
+      seat: seat.seat,
+      name: displayName,
+      left: pos.left,
+      top: pos.top,
+    });
   }
 
   // Your turn: always open action popup + alert
@@ -2022,45 +2037,9 @@ export function PokerTable({
                 </div>
                 {mySeat ? (
                   <>
-                    <div className="table-reaction-picker" aria-label="Throw items at players">
-                      <div className="table-reaction-picker-head">
-                        <span>Reactions</span>
-                        {reactionPick ? (
-                          <button
-                            type="button"
-                            className="table-reaction-cancel"
-                            onClick={() => setReactionPick(null)}
-                          >
-                            Cancel
-                          </button>
-                        ) : null}
-                      </div>
-                      <div className="table-reaction-items">
-                        {(Object.keys(THROWABLE_CATALOG) as ThrowableItem[]).map((item) => {
-                          const meta = THROWABLE_CATALOG[item];
-                          return (
-                            <button
-                              key={item}
-                              type="button"
-                              className={cn(
-                                "table-reaction-btn",
-                                reactionPick === item && "is-active",
-                              )}
-                              disabled={reactionBusy}
-                              title={meta.label}
-                              onClick={() =>
-                                setReactionPick((cur) => (cur === item ? null : item))
-                              }
-                            >
-                              <span aria-hidden>{meta.emoji}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {reactionPick ? (
-                        <p className="table-reaction-hint">Tap an opponent&apos;s seat on the felt.</p>
-                      ) : null}
-                    </div>
+                    <p className="table-reaction-hint table-reaction-hint-inline">
+                      Tap a player on the table to throw items at them.
+                    </p>
                     <form className="table-chat-compose" onSubmit={(e) => void sendChat(e)}>
                     <Input
                       value={chatText}
@@ -2231,10 +2210,13 @@ export function PokerTable({
 
         <TableReactionFx reactions={activeReactions} layout={seatLayout} />
 
-        {reactionPick ? (
-          <div className="felt-reaction-banner" role="status">
-            {THROWABLE_CATALOG[reactionPick].emoji} Tap a player to throw
-          </div>
+        {reactionMenu ? (
+          <SeatReactionMenu
+            target={reactionMenu}
+            busy={reactionBusy}
+            onClose={() => setReactionMenu(null)}
+            onPick={(item) => void throwReaction(reactionMenu.userId, item)}
+          />
         ) : null}
 
         {/* Winner celebration: fireworks then auto-fade */}
@@ -2398,6 +2380,8 @@ export function PokerTable({
             seat.holeCards.length > 0
               ? seat.holeCards
               : Array.from({ length: seat.cardCount || 2 }, () => "hidden");
+          const seatChat = chatBubbles.filter((b) => b.userId === seat.userId).slice(-1)[0];
+          const bubbleSide = Number.parseFloat(pos.left) >= 50 ? "right" : "left";
 
           return (
             <div
@@ -2408,20 +2392,25 @@ export function PokerTable({
                 isWinner && "is-winner",
                 seat.folded && "is-folded",
                 isMe && "is-me",
-                reactionPick && !isMe && "is-reaction-target",
+                mySeat && !isMe && "can-throw-at",
+                reactionMenu?.userId === seat.userId && "is-reaction-target",
               )}
               style={{ left: pos.left, top: pos.top }}
-              onClick={() => {
-                if (reactionPick && !isMe) onSeatReactionTarget(seat.userId);
-              }}
-              onKeyDown={(e) => {
-                if (reactionPick && !isMe && (e.key === "Enter" || e.key === " ")) {
-                  e.preventDefault();
-                  onSeatReactionTarget(seat.userId);
+              onClick={(e) => {
+                if (mySeat && !isMe && !reactionBusy) {
+                  e.stopPropagation();
+                  openReactionMenu(seat, displayName, pos);
                 }
               }}
-              role={reactionPick && !isMe ? "button" : undefined}
-              tabIndex={reactionPick && !isMe ? 0 : undefined}
+              onKeyDown={(e) => {
+                if (mySeat && !isMe && (e.key === "Enter" || e.key === " ")) {
+                  e.preventDefault();
+                  openReactionMenu(seat, displayName, pos);
+                }
+              }}
+              role={mySeat && !isMe ? "button" : undefined}
+              tabIndex={mySeat && !isMe ? 0 : undefined}
+              title={mySeat && !isMe ? `Throw item at ${displayName}` : undefined}
             >
               {isMe && !seat.folded && <div className="seat-you-badge">You</div>}
               {isMe && seat.folded && state.street !== "waiting" && !showWinner && (
@@ -2457,6 +2446,15 @@ export function PokerTable({
               )}
 
               <div className="seat-avatar-wrap">
+                {seatChat ? (
+                  <div
+                    className={cn("seat-chat-bubble", `is-${bubbleSide}`)}
+                    key={seatChat.id}
+                    role="status"
+                  >
+                    {seatChat.text}
+                  </div>
+                ) : null}
                 <PlayerAvatar userId={seat.userId} name={displayName} size="md" />
                 {isDealer && (
                   <span

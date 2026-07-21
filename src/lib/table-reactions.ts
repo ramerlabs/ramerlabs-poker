@@ -2,7 +2,19 @@ import { prisma } from "@/lib/prisma";
 import { publishRoomEvent } from "@/lib/ably";
 import { isBotUserId } from "@/lib/poker/bot";
 
-export const THROWABLE_ITEMS = ["ice", "water", "fireworks"] as const;
+export const THROWABLE_ITEMS = [
+  "ice",
+  "water",
+  "fireworks",
+  "tomato",
+  "beer",
+  "crown",
+  "rocket",
+  "egg",
+  "lightning",
+  "kiss",
+  "bomb",
+] as const;
 export type ThrowableItem = (typeof THROWABLE_ITEMS)[number];
 
 export const THROWABLE_CATALOG: Record<
@@ -12,10 +24,18 @@ export const THROWABLE_CATALOG: Record<
   ice: { emoji: "🧊", label: "Ice bucket", className: "is-ice" },
   water: { emoji: "💦", label: "Water splash", className: "is-water" },
   fireworks: { emoji: "🎆", label: "Fireworks", className: "is-fireworks" },
+  tomato: { emoji: "🍅", label: "Tomato", className: "is-tomato" },
+  beer: { emoji: "🍺", label: "Cold beer", className: "is-beer" },
+  crown: { emoji: "👑", label: "Crown", className: "is-crown" },
+  rocket: { emoji: "🚀", label: "Rocket", className: "is-rocket" },
+  egg: { emoji: "🥚", label: "Egg", className: "is-egg" },
+  lightning: { emoji: "⚡", label: "Lightning", className: "is-lightning" },
+  kiss: { emoji: "💋", label: "Kiss", className: "is-kiss" },
+  bomb: { emoji: "💣", label: "Bomb", className: "is-bomb" },
 };
 
-export const REACTION_COOLDOWN_MS = 4_000;
-export const REACTION_VISIBLE_MS = 2_800;
+export const REACTION_COOLDOWN_MS = 3_500;
+export const REACTION_VISIBLE_MS = 4_200;
 
 export type TableReactionEvent = {
   id: string;
