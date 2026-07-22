@@ -429,6 +429,13 @@ export function PokerTable({
   const [autoPlay, setAutoPlay] = useState(autoPlayEnabled);
   const [autoPlayAllowed, setAutoPlayAllowed] = useState(autoPlayFeatureEnabled);
   const [autoPlaySkill, setAutoPlaySkill] = useState(autoPlaySkillPercent);
+  const [autoPlayCountdown, setAutoPlayCountdown] = useState<number | null>(null);
+  const autoPlayRef = useRef(autoPlay);
+  const autoPlayAllowedRef = useRef(autoPlayAllowed);
+  const autoPlaySkillRef = useRef(autoPlaySkill);
+  autoPlayRef.current = autoPlay;
+  autoPlayAllowedRef.current = autoPlayAllowed;
+  autoPlaySkillRef.current = autoPlaySkill;
   const lastAutoResetHand = useRef(initialState.handNumber);
   const [reactionMenu, setReactionMenu] = useState<ReactionMenuTarget | null>(null);
   const [activeReactions, setActiveReactions] = useState<ActiveReaction[]>([]);
@@ -1149,11 +1156,33 @@ export function PokerTable({
 
   useEffect(() => {
     if (!canActNow || busy || actingRef.current) return;
+
+    // Autoplay: keep the action bar open ≥5s so the player can cancel or act manually
     if (autoPlay && autoPlayAllowed && myUserId) {
-      const decision = decideBotAction(state as never, myUserId, autoPlaySkill);
-      void act(decision.action, decision.amount, true);
-      return;
+      const graceMs = 5_000;
+      const started = Date.now();
+      setAutoPlayCountdown(Math.ceil(graceMs / 1000));
+      const tick = window.setInterval(() => {
+        const left = Math.max(0, Math.ceil((graceMs - (Date.now() - started)) / 1000));
+        setAutoPlayCountdown(left);
+      }, 200);
+      const timer = window.setTimeout(() => {
+        window.clearInterval(tick);
+        setAutoPlayCountdown(null);
+        if (actingRef.current || busy) return;
+        // Re-check toggle — player may have disabled Autoplay during the grace window
+        if (!autoPlayRef.current || !autoPlayAllowedRef.current) return;
+        const decision = decideBotAction(state as never, myUserId, autoPlaySkillRef.current);
+        void act(decision.action, decision.amount, true);
+      }, graceMs);
+      return () => {
+        window.clearTimeout(timer);
+        window.clearInterval(tick);
+        setAutoPlayCountdown(null);
+      };
     }
+
+    setAutoPlayCountdown(null);
     if (autoCheck && canCheck) {
       void act("check", undefined, true);
     } else if (autoFold && !canCheck) {
@@ -2117,10 +2146,18 @@ export function PokerTable({
           <div className="action-dock-head">
             <div className="action-dock-meta">
               <span className="action-dock-eyebrow">
-                {attentionUrgent ? "Hurry" : "Your turn"}
+                {autoPlay && autoPlayCountdown != null && autoPlayCountdown > 0
+                  ? "Autoplay"
+                  : attentionUrgent
+                    ? "Hurry"
+                    : "Your turn"}
               </span>
               <span className="action-dock-title">
-                {canCheck ? "Check or bet" : `Call ${formatChips(callAmount)}`}
+                {autoPlay && autoPlayCountdown != null && autoPlayCountdown > 0
+                  ? `Acting in ${autoPlayCountdown}s — tap Autoplay to cancel`
+                  : canCheck
+                    ? "Check or bet"
+                    : `Call ${formatChips(callAmount)}`}
               </span>
               <span className="action-dock-timer-label">{secondsLeft}s left</span>
             </div>
@@ -2157,10 +2194,14 @@ export function PokerTable({
                 type="button"
                 className={cn("action-auto-pill", autoPlay && "is-on")}
                 disabled={busy}
-                title={`Autoplay uses your hand strength (~${autoPlaySkill}% accuracy)`}
+                title={`Autoplay uses your hand strength (~${autoPlaySkill}% accuracy). Waits 5s each turn so you can cancel.`}
                 onClick={() => void toggleAutoPlay()}
               >
-                Autoplay{autoPlay ? ` ${autoPlaySkill}%` : ""}
+                {autoPlay && autoPlayCountdown != null && autoPlayCountdown > 0
+                  ? `Autoplay ${autoPlayCountdown}s`
+                  : autoPlay
+                    ? `Autoplay ${autoPlaySkill}%`
+                    : "Autoplay"}
               </button>
             ) : null}
             <button

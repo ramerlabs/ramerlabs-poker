@@ -531,10 +531,13 @@ async function advanceOneAutoPlayIfReady(state: PokerTableState): Promise<{
     state.turnStartedAt = Date.now();
     turnStartedAt = state.turnStartedAt;
   }
-  // Slightly slower than table bots so it feels like a human click
-  const thinkMs = Math.min(1200, botThinkMs(state, actor.userId) + 350);
+  // Slightly slower than table bots; always give ≥5s so the player can cancel Autoplay
+  const thinkMs = Math.max(5_000, botThinkMs(state, actor.userId) + 350);
   const waited = Date.now() - turnStartedAt;
-  const maxMs = Math.min((state.turnSeconds || DEFAULT_TURN_SECONDS) * 1000, 6_000);
+  const maxMs = Math.max(
+    5_000,
+    Math.min((state.turnSeconds || DEFAULT_TURN_SECONDS) * 1000, 20_000),
+  );
   const expired = waited >= maxMs || isTurnExpired(state, actor.userId);
   if (!expired && waited < thinkMs) {
     return { state, acted: false };
