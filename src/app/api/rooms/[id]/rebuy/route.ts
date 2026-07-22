@@ -38,6 +38,7 @@ export async function POST(req: Request, { params }: Params) {
       currency: result.currency,
       walletSource: result.walletSource,
       walletBalance: result.walletBalance,
+      pendingNextHand: result.pendingNextHand,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not add chips";

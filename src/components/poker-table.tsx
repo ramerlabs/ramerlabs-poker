@@ -1033,8 +1033,11 @@ export function PokerTable({
       return;
     }
     const betweenHands = state.street === "waiting" || state.street === "complete";
-    if (!betweenHands) return;
-    if (mySeat.stack > lowStackThreshold) {
+    const brokeOutOfHand =
+      mySeat.stack <= 0 && (mySeat.folded || mySeat.sittingOut || mySeat.allIn || betweenHands);
+    // Prompt between hands on low stack, or mid-hand when broke so they can rebuy for next deal
+    if (!betweenHands && !brokeOutOfHand) return;
+    if (mySeat.stack > lowStackThreshold && !brokeOutOfHand) {
       stackPromptDismissedHand.current = null;
       setStackPrompt(null);
       return;
@@ -1751,6 +1754,7 @@ export function PokerTable({
           newStack?: number;
           walletBalance?: number;
           walletSource?: "system" | "club";
+          pendingNextHand?: boolean;
         }>(res);
         if (!res.ok) throw new Error(json.error || "Could not add chips");
         if (typeof json.walletBalance === "number") setWalletLeft(json.walletBalance);
@@ -1758,7 +1762,9 @@ export function PokerTable({
         if (json.walletSource) setWalletKind(json.walletSource);
         setBusy(false);
         closeBuyInModal(true);
-        const msg = `Added ${amount.toLocaleString()} ${currency} from ${walletLabel.toLowerCase()} — stack is now ${(json.newStack ?? mySeat?.stack ?? 0).toLocaleString()}.`;
+        const msg = json.pendingNextHand
+          ? `Rebuy ${amount.toLocaleString()} ${currency} — you'll play the next hand.`
+          : `Added ${amount.toLocaleString()} ${currency} from ${walletLabel.toLowerCase()} — stack is now ${(json.newStack ?? mySeat?.stack ?? 0).toLocaleString()}.`;
         setHint(msg);
         onSitResult?.(msg);
         stackPromptDismissedHand.current = state.handNumber;
@@ -2789,6 +2795,11 @@ export function PokerTable({
                 <>
                   {" "}
                   Current stack: {mySeat.stack.toLocaleString()} {currency}.
+                  {mySeat.stack <= 0 &&
+                  state.street !== "waiting" &&
+                  state.street !== "complete"
+                    ? " You can rebuy now — you'll sit out this hand and play the next one."
+                    : null}
                 </>
               ) : null}
             </p>

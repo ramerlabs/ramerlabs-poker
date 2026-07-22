@@ -556,8 +556,10 @@ async function cashOutSeatedPlayer(roomId: string, userId: string) {
   await saveTableState(roomId, next);
 }
 
-/** Add chips from wallet to an already-seated player (between hands only).
- *  System tables debit system credits/cash; club tables debit club wallet. */
+/** Add chips from wallet to an already-seated player.
+ *  Between hands: chips are live immediately.
+ *  Mid-hand: allowed when the player is already out (0 stack / folded / sitting out)
+ *  so they can buy in and wait for the next deal — never mid-hand top-ups while live. */
 export async function rebuySeatedPlayer(
   roomId: string,
   userId: string,
@@ -584,7 +586,18 @@ export async function rebuySeatedPlayer(
   if (!player) throw new Error("Sit at the table first");
 
   const state = await ensureGameState(roomId);
-  if (state.street !== "waiting" && state.street !== "complete") {
+  const betweenHands =
+    state.street === "waiting" ||
+    state.street === "complete" ||
+    state.street === "showdown";
+  const liveSeat = state.seats.find((s) => s.userId === userId);
+  const outOfHand =
+    !liveSeat ||
+    liveSeat.sittingOut ||
+    liveSeat.folded ||
+    liveSeat.stack <= 0;
+
+  if (!betweenHands && !outOfHand) {
     throw new Error("Add chips between hands only — wait for this hand to finish");
   }
 
@@ -629,7 +642,17 @@ export async function rebuySeatedPlayer(
   const seat = next.seats.find((s) => s.userId === userId);
   if (seat) {
     seat.stack = newStack;
-    seat.sittingOut = false;
+    // Stay out of the current hand if it is still running; next deal will include them.
+    if (betweenHands) {
+      seat.sittingOut = false;
+    } else {
+      seat.sittingOut = false;
+      // Keep them folded for this hand so added chips don't resurrect a live seat.
+      if (next.street !== "waiting" && next.street !== "complete") {
+        seat.folded = true;
+        seat.allIn = false;
+      }
+    }
   }
   await saveTableState(roomId, next);
 
@@ -639,6 +662,7 @@ export async function rebuySeatedPlayer(
     currency: room.currency,
     walletSource: wallet.source,
     walletBalance: Math.max(0, wallet.balance - amount),
+    pendingNextHand: !betweenHands,
   };
 }
 
