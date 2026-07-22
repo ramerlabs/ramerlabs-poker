@@ -153,6 +153,9 @@ export async function GET(req: Request, { params }: Params) {
           buyIn: toNumber(room.buyIn),
           smallBlind: toNumber(room.smallBlind),
           bigBlind: toNumber(room.bigBlind),
+          // Only creator/admin see invite codes — private club tables stay private
+          inviteCode:
+            isCreator || isAdmin ? room.inviteCode : null,
           club: room.club
             ? {
                 id: room.club.id,

@@ -57,7 +57,8 @@ export async function GET() {
         botSkillPercent: room.botSkillPercent,
         chatEnabled: room.chatEnabled,
         isPrivate: room.isPrivate,
-        inviteCode: room.isPrivate ? room.inviteCode : null,
+        // Never expose invite codes to members — club membership is enough to join.
+        inviteCode: null,
         status: room.status,
         playerCount: room.players.length,
       })),

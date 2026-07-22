@@ -119,9 +119,11 @@ export function ClubTablesPanel({
       ) : (
         <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {rooms.map((room) => {
-            const openHref = `/rooms/${room.id}${
-              room.inviteCode ? `?invite=${room.inviteCode}` : ""
-            }`;
+            // Members join via club membership (no invite in URL). Owners keep invite for guest links.
+            const openHref =
+              !readOnly && room.inviteCode
+                ? `/rooms/${room.id}?invite=${room.inviteCode}`
+                : `/rooms/${room.id}`;
             const isEditing = editingId === room.id;
             const seatsFull = room.playerCount >= room.maxPlayers;
 
@@ -182,7 +184,8 @@ export function ClubTablesPanel({
                   </div>
                 </div>
 
-                {room.inviteCode ? (
+                {/* Members never see invite codes. Owners can copy when managing. */}
+                {!readOnly && room.inviteCode ? (
                   <div className="club-table-invite">
                     <span className="text-[10px] uppercase tracking-wider text-[var(--muted)]">
                       Invite code
@@ -200,6 +203,13 @@ export function ClubTablesPanel({
                         </button>
                       ) : null}
                     </div>
+                  </div>
+                ) : room.isPrivate && readOnly ? (
+                  <div className="club-table-invite">
+                    <span className="club-table-meta">
+                      <Lock className="h-3 w-3" />
+                      Private — club members only
+                    </span>
                   </div>
                 ) : null}
 
