@@ -57,11 +57,16 @@ type RoomPayload = {
     walletSource?: "system" | "club";
     currency?: string;
     minBuyIn?: number;
+    autoPlay?: boolean;
   };
   branding?: {
     siteName: string;
     tableFooter: string;
     logoUrl: string | null;
+  };
+  autoPlay?: {
+    featureEnabled: boolean;
+    skillPercent: number;
   };
   game: { state: PublicTableState };
 };
@@ -394,6 +399,9 @@ export default function RoomDetailPage() {
       walletBalance={data.me.walletBalance ?? 0}
       walletSource={data.me.walletSource ?? (data.room.club ? "club" : "system")}
       chatEnabled={data.room.chatEnabled}
+      autoPlayEnabled={Boolean(data.me.autoPlay)}
+      autoPlayFeatureEnabled={data.autoPlay?.featureEnabled !== false}
+      autoPlaySkillPercent={data.autoPlay?.skillPercent ?? 80}
       topUpHref={
         data.room.club
           ? `mailto:${data.room.club.owner.email}?subject=${encodeURIComponent(`Top-up request — ${data.room.club.name}`)}`

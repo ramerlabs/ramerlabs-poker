@@ -12,6 +12,7 @@ import {
   toPublicState,
 } from "@/lib/poker/engine";
 import { decideBotAction, isBotUserId, botThinkMs } from "@/lib/poker/bot";
+import { getAutoPlayConfig } from "@/lib/autoplay";
 import type { PlayerAction, PokerTableState } from "@/lib/poker/types";
 import { DEFAULT_TURN_SECONDS } from "@/lib/poker/types";
 import { toNumber } from "@/lib/utils";
@@ -37,6 +38,8 @@ export async function getPlatformSettings() {
       ablyEnabled: true,
       siteName: "RamerLabs",
       tableFooter: "RamerLabs Poker",
+      autoPlayEnabled: true,
+      autoPlaySkillPercent: 80,
     },
   });
 }
@@ -487,6 +490,82 @@ async function advanceOneBotIfReady(state: PokerTableState): Promise<{
   return { state: next, acted: true };
 }
 
+/** Human Autoplay: same hand-strength decisions as bots, using admin skill %. */
+async function advanceOneAutoPlayIfReady(state: PokerTableState): Promise<{
+  state: PokerTableState;
+  acted: boolean;
+}> {
+  if (
+    state.street === "waiting" ||
+    state.street === "complete" ||
+    state.street === "showdown" ||
+    state.actionSeat == null
+  ) {
+    return { state, acted: false };
+  }
+
+  const actor = state.seats.find((s) => s.seat === state.actionSeat);
+  if (!actor || isBotUserId(actor.userId) || actor.folded || actor.allIn) {
+    return { state, acted: false };
+  }
+
+  if (state.streetHoldUntil && Date.now() < state.streetHoldUntil) {
+    return { state, acted: false };
+  }
+  if (state.pendingCommunityDeals && state.pendingCommunityDeals > 0) {
+    return { state, acted: false };
+  }
+
+  const config = await getAutoPlayConfig();
+  if (!config.enabled) return { state, acted: false };
+
+  const row = await prisma.roomPlayer.findUnique({
+    where: { roomId_userId: { roomId: state.roomId, userId: actor.userId } },
+    select: { autoPlay: true },
+  });
+  if (!row?.autoPlay) return { state, acted: false };
+
+  releaseStreetHoldIfReady(state);
+  let turnStartedAt = state.turnStartedAt;
+  if (turnStartedAt == null || turnStartedAt > Date.now()) {
+    state.turnStartedAt = Date.now();
+    turnStartedAt = state.turnStartedAt;
+  }
+  // Slightly slower than table bots so it feels like a human click
+  const thinkMs = Math.min(1200, botThinkMs(state, actor.userId) + 350);
+  const waited = Date.now() - turnStartedAt;
+  const maxMs = Math.min((state.turnSeconds || DEFAULT_TURN_SECONDS) * 1000, 6_000);
+  const expired = waited >= maxMs || isTurnExpired(state, actor.userId);
+  if (!expired && waited < thinkMs) {
+    return { state, acted: false };
+  }
+
+  const decision = decideBotAction(state, actor.userId, config.skillPercent);
+  let next = state;
+  try {
+    next = applyAction(next, actor.userId, decision.action, decision.amount ?? 0);
+  } catch {
+    try {
+      next = applyAction(next, actor.userId, "check");
+    } catch {
+      try {
+        next = applyAction(next, actor.userId, "fold");
+      } catch {
+        if (expired || waited >= maxMs) {
+          try {
+            next = forceFold(next, actor.userId);
+          } catch {
+            return { state, acted: false };
+          }
+        } else {
+          return { state, acted: false };
+        }
+      }
+    }
+  }
+  return { state: next, acted: true };
+}
+
 function liveSeatCount(state: PokerTableState) {
   return state.seats.filter((s) => !s.sittingOut && s.stack > 0).length;
 }
@@ -710,7 +789,10 @@ export async function tickRoom(roomId: string): Promise<PokerTableState> {
         const botResult = await advanceOneBotIfReady(state);
         state = botResult.acted ? botResult.state : resolveExpiredActor(state, actor.userId);
       } else {
-        state = resolveExpiredActor(state, actor.userId);
+        const autoResult = await advanceOneAutoPlayIfReady(state);
+        state = autoResult.acted
+          ? autoResult.state
+          : resolveExpiredActor(state, actor.userId);
       }
 
       if (
@@ -735,10 +817,13 @@ export async function tickRoom(roomId: string): Promise<PokerTableState> {
       await afterHandRoster(roomId, prev, state);
     }
 
-    // Bot chain
+    // Bot + human Autoplay chain
     for (let i = 0; i < 10; i += 1) {
       const prev = state;
-      const result = await advanceOneBotIfReady(state);
+      let result = await advanceOneBotIfReady(state);
+      if (!result.acted) {
+        result = await advanceOneAutoPlayIfReady(state);
+      }
       if (!result.acted) break;
       state = result.state;
       await commit(state, false);

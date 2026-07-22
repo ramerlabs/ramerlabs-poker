@@ -248,6 +248,10 @@ model PlatformSettings {
   ablyEnabled        Boolean @default(true)
   /// Optional Ably API key stored by admin (falls back to env ABLY_API_KEY).
   ablyApiKey         String?
+  /// Allow players to enable Autoplay at the table.
+  autoPlayEnabled    Boolean @default(true)
+  /// How accurately Autoplay plays (0–100). Higher = more hand-strength based.
+  autoPlaySkillPercent Int   @default(80)
   /// Branding
   siteName           String  @default("RamerLabs")
   tableFooter        String  @default("RamerLabs Poker")
@@ -275,6 +279,8 @@ model RoomPlayer {
   seat         Int
   stack        Decimal    @db.Decimal(18, 2)
   status       SeatStatus @default(SEATED)
+  /// When true, server/client auto-act using hand strength (if platform allows).
+  autoPlay     Boolean    @default(false)
   /// Set when the client disconnects mid-hand; cashed out after the hand.
   pendingLeave Boolean    @default(false)
   /// Heartbeat — stale humans are auto-disconnected.

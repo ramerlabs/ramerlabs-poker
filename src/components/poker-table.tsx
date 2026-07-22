@@ -24,6 +24,7 @@ import {
   unlockAudio,
 } from "@/lib/sounds";
 import { getHandHints } from "@/lib/poker/hand-hints";
+import { decideBotAction } from "@/lib/poker/bot";
 import { cn, readJson, formatChips, roundMoney, chipAmountString } from "@/lib/utils";
 import {
   REACTION_IMPACT_MS,
@@ -323,6 +324,9 @@ export function PokerTable({
   topUpHref = "/wallet",
   topUpLabel = "Top up wallet",
   isCreator = false,
+  autoPlayEnabled = false,
+  autoPlayFeatureEnabled = true,
+  autoPlaySkillPercent = 80,
   onPlayersChanged,
   onSitResult,
 }: {
@@ -355,6 +359,12 @@ export function PokerTable({
   chatEnabled?: boolean;
   /** Whether this viewer is the first player (room creator) — can change table theme */
   isCreator?: boolean;
+  /** Seated player's Autoplay flag from server */
+  autoPlayEnabled?: boolean;
+  /** Platform allows Autoplay */
+  autoPlayFeatureEnabled?: boolean;
+  /** Admin-configured Autoplay accuracy (hand-strength weight) */
+  autoPlaySkillPercent?: number;
   /** Where to send players who need more off-table balance */
   topUpHref?: string;
   topUpLabel?: string;
@@ -398,10 +408,27 @@ export function PokerTable({
   useEffect(() => {
     setChatOn(chatEnabled);
   }, [chatEnabled]);
+
+  useEffect(() => {
+    setAutoPlay(autoPlayEnabled);
+  }, [autoPlayEnabled]);
+
+  useEffect(() => {
+    setAutoPlayAllowed(autoPlayFeatureEnabled);
+    if (!autoPlayFeatureEnabled) setAutoPlay(false);
+  }, [autoPlayFeatureEnabled]);
+
+  useEffect(() => {
+    setAutoPlaySkill(autoPlaySkillPercent);
+  }, [autoPlaySkillPercent]);
+
   const [raiseTo, setRaiseTo] = useState("");
   const [raiseSlider, setRaiseSlider] = useState(0);
   const [autoCheck, setAutoCheck] = useState(false);
   const [autoFold, setAutoFold] = useState(false);
+  const [autoPlay, setAutoPlay] = useState(autoPlayEnabled);
+  const [autoPlayAllowed, setAutoPlayAllowed] = useState(autoPlayFeatureEnabled);
+  const [autoPlaySkill, setAutoPlaySkill] = useState(autoPlaySkillPercent);
   const lastAutoResetHand = useRef(initialState.handNumber);
   const [reactionMenu, setReactionMenu] = useState<ReactionMenuTarget | null>(null);
   const [activeReactions, setActiveReactions] = useState<ActiveReaction[]>([]);
@@ -861,6 +888,8 @@ export function PokerTable({
             branding?: { siteName?: string; tableFooter?: string };
             chats?: TableChatBubble[];
             serverNow?: number;
+            me?: { autoPlay?: boolean };
+            autoPlay?: { featureEnabled?: boolean; skillPercent?: number };
           }>(res),
           new Promise<never>((_, reject) => {
             const t = window.setTimeout(() => reject(new Error("READ_TIMEOUT")), 5_000);
@@ -898,6 +927,18 @@ export function PokerTable({
         if (typeof json.room?.chatEnabled === "boolean") setChatOn(json.room.chatEnabled);
         if (json.branding?.siteName) setFeltBrandName(json.branding.siteName);
         if (json.branding?.tableFooter) setFeltBrandFooter(json.branding.tableFooter);
+        if (json.autoPlay) {
+          if (typeof json.autoPlay.featureEnabled === "boolean") {
+            setAutoPlayAllowed(json.autoPlay.featureEnabled);
+            if (!json.autoPlay.featureEnabled) setAutoPlay(false);
+          }
+          if (typeof json.autoPlay.skillPercent === "number") {
+            setAutoPlaySkill(json.autoPlay.skillPercent);
+          }
+        }
+        if (typeof json.me?.autoPlay === "boolean") {
+          setAutoPlay(json.me.autoPlay);
+        }
         if (json.chats?.length) {
           for (const chat of json.chats) ingestChatRef.current(chat);
         }
@@ -1108,13 +1149,52 @@ export function PokerTable({
 
   useEffect(() => {
     if (!canActNow || busy || actingRef.current) return;
+    if (autoPlay && autoPlayAllowed && myUserId) {
+      const decision = decideBotAction(state as never, myUserId, autoPlaySkill);
+      void act(decision.action, decision.amount, true);
+      return;
+    }
     if (autoCheck && canCheck) {
       void act("check", undefined, true);
     } else if (autoFold && !canCheck) {
       void act("fold", undefined, true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- act is stable enough; only fire on turn open
-  }, [canActNow, turnKey, autoCheck, autoFold, canCheck, busy]);
+  }, [canActNow, turnKey, autoCheck, autoFold, autoPlay, autoPlayAllowed, autoPlaySkill, canCheck, busy, myUserId]);
+
+  async function toggleAutoPlay() {
+    if (busy || !autoPlayAllowed) return;
+    const next = !autoPlay;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/autoplay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: next }),
+      });
+      const json = await readJson<{
+        error?: string;
+        enabled?: boolean;
+        skillPercent?: number;
+        featureEnabled?: boolean;
+      }>(res);
+      if (!res.ok) throw new Error(json.error || "Could not update Autoplay");
+      setAutoPlay(Boolean(json.enabled));
+      if (typeof json.skillPercent === "number") setAutoPlaySkill(json.skillPercent);
+      if (json.featureEnabled === false) setAutoPlayAllowed(false);
+      if (json.enabled) {
+        setAutoCheck(false);
+        setAutoFold(false);
+        setHint(`Autoplay on — plays from hand strength (~${json.skillPercent ?? autoPlaySkill}% accuracy).`);
+      } else {
+        setHint("Autoplay off.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update Autoplay");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const livePot = useMemo(
     () => state.pot + state.seats.reduce((sum, s) => sum + (s.bet || 0), 0),
@@ -2072,13 +2152,27 @@ export function PokerTable({
             </Button>
           </div>
           <div className="action-auto-row">
+            {autoPlayAllowed ? (
+              <button
+                type="button"
+                className={cn("action-auto-pill", autoPlay && "is-on")}
+                disabled={busy}
+                title={`Autoplay uses your hand strength (~${autoPlaySkill}% accuracy)`}
+                onClick={() => void toggleAutoPlay()}
+              >
+                Autoplay{autoPlay ? ` ${autoPlaySkill}%` : ""}
+              </button>
+            ) : null}
             <button
               type="button"
               className={cn("action-auto-pill", autoCheck && "is-on")}
-              disabled={busy}
+              disabled={busy || autoPlay}
               onClick={() => {
                 setAutoCheck((v) => !v);
-                if (!autoCheck) setAutoFold(false);
+                if (!autoCheck) {
+                  setAutoFold(false);
+                  if (autoPlay) void toggleAutoPlay();
+                }
               }}
             >
               Auto-check
@@ -2086,10 +2180,13 @@ export function PokerTable({
             <button
               type="button"
               className={cn("action-auto-pill", autoFold && "is-on")}
-              disabled={busy}
+              disabled={busy || autoPlay}
               onClick={() => {
                 setAutoFold((v) => !v);
-                if (!autoFold) setAutoCheck(false);
+                if (!autoFold) {
+                  setAutoCheck(false);
+                  if (autoPlay) void toggleAutoPlay();
+                }
               }}
             >
               Auto-fold

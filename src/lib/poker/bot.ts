@@ -5,6 +5,27 @@ export function isBotUserId(userId: string) {
   return userId.startsWith("bot_");
 }
 
+type DecisionState = Pick<
+  PokerTableState,
+  "community" | "currentBet" | "bigBlind" | "minRaise" | "botSkillPercent"
+> & {
+  seats: Array<{
+    userId: string;
+    seat: number;
+    stack: number;
+    bet: number;
+    holeCards: Card[] | string[];
+    folded: boolean;
+    allIn: boolean;
+  }>;
+};
+
+function asCards(cards: Card[] | string[]): Card[] {
+  return cards.filter(
+    (c) => typeof c === "string" && c.length >= 2 && c !== "hidden",
+  ) as Card[];
+}
+
 function hashSeed(input: string) {
   let h = 0;
   for (let i = 0; i < input.length; i += 1) h = (h * 31 + input.charCodeAt(i)) >>> 0;
@@ -17,7 +38,10 @@ export function botSkillPercentFor(userId: string) {
 }
 
 /** Think time before a bot acts — short pause so they don't sit on the turn clock. */
-export function botThinkMs(state: PokerTableState, userId: string) {
+export function botThinkMs(
+  state: Pick<PokerTableState, "handNumber" | "street" | "actionSeat" | "pot">,
+  userId: string,
+) {
   const seed = `${userId}:${state.handNumber}:${state.street}:${state.actionSeat}:${state.pot}`;
   const h = hashSeed(seed);
   // ~80–280ms — looks like a click, not waiting for the timer to expire
@@ -69,22 +93,29 @@ export function boardHandStrength(hole: Card[], community: Card[]): number {
 }
 
 /**
- * Loose-active bots: prefer check/call over fold so hands reach showdown.
- * They still raise and bluff sometimes, but mass folds are rare.
+ * Loose-active bots / autoplay: prefer check/call over fold so hands reach showdown.
+ * Decisions are weighted by hole/board hand strength; `skillPercentOverride` (0–100)
+ * controls how tightly play follows that strength (admin Autoplay default = 80).
  */
 export function decideBotAction(
-  state: PokerTableState,
+  state: DecisionState,
   userId: string,
+  skillPercentOverride?: number,
 ): { action: PlayerAction; amount?: number } {
   const seat = state.seats.find((s) => s.userId === userId);
   if (!seat || seat.folded || seat.allIn) {
     return { action: "check" };
   }
 
-  const skill = (state.botSkillPercent ?? botSkillPercentFor(userId)) / 100;
+  const rawSkill =
+    skillPercentOverride != null
+      ? skillPercentOverride
+      : ((state as { botSkillPercent?: number }).botSkillPercent ?? botSkillPercentFor(userId));
+  const skill = Math.max(0, Math.min(100, rawSkill)) / 100;
   const toCall = Math.max(0, state.currentBet - seat.bet);
   const bb = Math.max(1, state.bigBlind);
-  const strength = boardHandStrength(seat.holeCards, state.community);
+  const hole = asCards(seat.holeCards as Card[] | string[]);
+  const strength = boardHandStrength(hole, state.community as Card[]);
   const loose = 0.55 + (1 - skill) * 0.25 + (hashSeed(userId) % 20) / 100;
   const roll = Math.random();
   const preflop = state.community.length === 0;

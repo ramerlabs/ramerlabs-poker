@@ -8,6 +8,7 @@ import { isBotUserId } from "@/lib/poker/bot";
 import { purgeStalePlayers } from "@/lib/table-roster";
 import { getRecentTableChats } from "@/lib/table-chat";
 import { resolveRoomAccess } from "@/lib/room-access";
+import { getAutoPlayConfig } from "@/lib/autoplay";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -108,6 +109,10 @@ export async function GET(req: Request, { params }: Params) {
       });
 
   const branding = await getPublicBranding();
+  const autoPlayConfig = await getAutoPlayConfig();
+  const myAutoPlay = Boolean(
+    (myPlayer as { autoPlay?: boolean } | undefined)?.autoPlay,
+  );
 
   let walletBalance = 0;
   let walletSource: "club" | "system" = "system";
@@ -197,6 +202,7 @@ export async function GET(req: Request, { params }: Params) {
           preferredSeat: waiting
             ? (room.waitlist.find((w) => w.userId === authResult.userId)?.preferredSeat ?? null)
             : null,
+          autoPlay: myAutoPlay,
         }
       : {
           userId: authResult.userId,
@@ -211,10 +217,15 @@ export async function GET(req: Request, { params }: Params) {
           walletSource,
           currency: room.currency,
           minBuyIn: toNumber(room.buyIn),
+          autoPlay: myAutoPlay,
         },
     game,
     chats,
     branding,
+    autoPlay: {
+      featureEnabled: autoPlayConfig.enabled,
+      skillPercent: autoPlayConfig.skillPercent,
+    },
   }, {
     headers: {
       "Cache-Control": "no-store, no-cache, must-revalidate",

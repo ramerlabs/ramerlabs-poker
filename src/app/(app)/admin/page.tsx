@@ -81,6 +81,11 @@ type AblySettings = {
   keySource: string;
 };
 
+type AutoPlaySettings = {
+  enabled: boolean;
+  skillPercent: number;
+};
+
 type AdminCoupon = {
   id: string;
   code: string;
@@ -119,6 +124,7 @@ export default function AdminPage() {
   const [ticketCategory, setTicketCategory] = useState("");
   const [ably, setAbly] = useState<AblySettings | null>(null);
   const [ablyKeyInput, setAblyKeyInput] = useState("");
+  const [autoPlay, setAutoPlay] = useState<AutoPlaySettings | null>(null);
   const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
   const [clubs, setClubs] = useState<AdminClub[]>([]);
   const [couponKind, setCouponKind] = useState<"CREDITS" | "CASH">("CREDITS");
@@ -161,7 +167,7 @@ export default function AdminPage() {
 
   async function load() {
     try {
-      const [curRes, rakeRes, roomsRes, ablyRes, couponRes, globalCurRes, clubsRes, brandingRes] =
+      const [curRes, rakeRes, roomsRes, ablyRes, couponRes, globalCurRes, clubsRes, brandingRes, autoPlayRes] =
         await Promise.all([
           fetch("/api/admin/currencies"),
           fetch("/api/admin/rake"),
@@ -171,8 +177,9 @@ export default function AdminPage() {
           fetch("/api/admin/currency"),
           fetch("/api/admin/clubs"),
           fetch("/api/admin/branding"),
+          fetch("/api/admin/autoplay"),
         ]);
-      const [curJson, rakeJson, roomsJson, ablyJson, couponJson, globalCurJson, clubsJson, brandingJson] =
+      const [curJson, rakeJson, roomsJson, ablyJson, couponJson, globalCurJson, clubsJson, brandingJson, autoPlayJson] =
         await Promise.all([
           curRes.json().catch(() => ({})),
           rakeRes.json().catch(() => ({})),
@@ -182,6 +189,7 @@ export default function AdminPage() {
           globalCurRes.json().catch(() => ({})),
           clubsRes.json().catch(() => ({})),
           brandingRes.json().catch(() => ({})),
+          autoPlayRes.json().catch(() => ({})),
         ]);
       if (!curRes.ok && !roomsRes.ok) {
         setError(curJson.error || roomsJson.error || "Admin access required");
@@ -198,6 +206,7 @@ export default function AdminPage() {
         setAbly(ablyJson.settings);
         setAblyKeyInput("");
       }
+      if (autoPlayRes.ok) setAutoPlay(autoPlayJson.settings);
       if (couponRes.ok) setCoupons(couponJson.coupons ?? []);
       if (globalCurRes.ok) {
         setGlobalCurrency(globalCurJson.globalCurrency ?? "USD");
@@ -562,6 +571,33 @@ export default function AdminPage() {
     );
   }
 
+  async function saveAutoPlay(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    const enabled = form.get("autoPlayEnabled") === "on";
+    const skillPercent = Number(form.get("autoPlaySkillPercent"));
+    if (!Number.isFinite(skillPercent) || skillPercent < 0 || skillPercent > 100) {
+      toast.error("Accuracy must be 0–100");
+      return;
+    }
+    const res = await fetch("/api/admin/autoplay", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled, skillPercent: Math.round(skillPercent) }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      toast.error(json.error || "Autoplay update failed");
+      return;
+    }
+    setAutoPlay(json.settings);
+    toast.success(
+      json.settings.enabled
+        ? `Autoplay ON — ${json.settings.skillPercent}% hand-strength accuracy`
+        : "Autoplay disabled for all players",
+    );
+  }
+
   const openRooms = rooms.filter((r) => r.status !== "CLOSED");
 
   return (
@@ -866,6 +902,56 @@ export default function AdminPage() {
             )}
 
             <Button type="submit">Save Ably settings</Button>
+          </form>
+        )}
+      </Panel>
+
+      <Panel className="p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">Player Autoplay</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Lets seated players auto-act from hand strength. Disable to hide the table toggle.
+            </p>
+          </div>
+          {autoPlay && (
+            <Badge tone={autoPlay.enabled ? "green" : "muted"}>
+              {autoPlay.enabled ? `ON · ${autoPlay.skillPercent}%` : "OFF"}
+            </Badge>
+          )}
+        </div>
+
+        {autoPlay && (
+          <form
+            key={`autoplay-${autoPlay.enabled}-${autoPlay.skillPercent}`}
+            onSubmit={saveAutoPlay}
+            className="mt-5 space-y-4"
+          >
+            <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
+              <input
+                type="checkbox"
+                name="autoPlayEnabled"
+                defaultChecked={autoPlay.enabled}
+                className="h-4 w-4 rounded border-[var(--line)]"
+              />
+              Enable Autoplay for players
+            </label>
+            <div>
+              <Label htmlFor="autoPlaySkillPercent">Accuracy (0–100)</Label>
+              <Input
+                id="autoPlaySkillPercent"
+                name="autoPlaySkillPercent"
+                type="number"
+                min={0}
+                max={100}
+                defaultValue={autoPlay.skillPercent}
+                required
+              />
+              <p className="mt-1 text-[11px] text-[var(--muted)]">
+                Default 80. Higher = tighter play based on hole cards and board strength.
+              </p>
+            </div>
+            <Button type="submit">Save Autoplay settings</Button>
           </form>
         )}
       </Panel>
